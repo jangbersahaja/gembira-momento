@@ -1,0 +1,60 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - link "Gembira Momento" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - navigation [ref=e5]:
+        - link "About" [ref=e6] [cursor=pointer]:
+          - /url: /about
+        - link "Contact" [ref=e7] [cursor=pointer]:
+          - /url: /contact
+        - link "Visit Us" [ref=e8] [cursor=pointer]:
+          - /url: https://maps.google.com?q=KLCC
+  - main [ref=e9]:
+    - generic [ref=e10]:
+      - region "Souvenirs & Keepsakes" [ref=e11]:
+        - generic [ref=e13]:
+          - heading "Souvenirs & Keepsakes" [level=2] [ref=e14]
+          - paragraph [ref=e15]: Quietly curated gifts in front of KLCC — small-batch keepsakes and local designs. In-store pickup only.
+          - generic [ref=e16]:
+            - link "About" [ref=e17] [cursor=pointer]:
+              - /url: /about
+            - link "Contact" [ref=e18] [cursor=pointer]:
+              - /url: /contact
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - heading "Souvenirs & Keepsakes — locally made" [level=2] [ref=e23]
+          - paragraph [ref=e24]: Small-batch, thoughtfully selected souvenirs in front of KLCC.
+          - link "Learn more" [ref=e26] [cursor=pointer]:
+            - /url: /about
+        - generic [ref=e27]: "Placeholder — drop `/public/images/hero.jpg` and set as background"
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - generic [ref=e32]: Location
+          - generic [ref=e33]: In front of KLCC
+        - generic [ref=e34]:
+          - generic [ref=e35]: Hours
+          - generic [ref=e36]: Everyday 11:00 — 22:00
+        - generic [ref=e37]:
+          - generic [ref=e38]: Policy
+          - generic [ref=e39]: In-store pickup only — contact for holds
+      - generic [ref=e41]:
+        - heading "Photos" [level=3] [ref=e42]
+        - paragraph [ref=e43]: "Replace with shop/product images in `public/images/`"
+        - generic [ref=e44]:
+          - generic [ref=e45]: /public/images/gallery-1.jpg
+          - generic [ref=e46]: /public/images/gallery-2.jpg
+          - generic [ref=e47]: /public/images/gallery-3.jpg
+  - contentinfo [ref=e48]:
+    - generic [ref=e49]:
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - generic [ref=e52]: Gembira Momento
+          - generic [ref=e53]: In front of KLCC, Kuala Lumpur
+        - generic [ref=e54]:
+          - generic [ref=e55]: "Open: Everyday 11:00 AM — 11:00 PM"
+          - generic [ref=e56]: "Email: hello@gembiramomento.my"
+      - generic [ref=e57]: © 2026 Gembira Momento
+  - button "Open Next.js Dev Tools" [ref=e63] [cursor=pointer]:
+    - img [ref=e64]
+  - alert [ref=e67]
