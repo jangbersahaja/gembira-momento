@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
+import { useState } from "react";
 
 export default function Home() {
   const [activeLanguage, setActiveLanguage] = useState("en");
@@ -17,43 +17,46 @@ export default function Home() {
 
   const pillars = [
     {
-      icon: "🍫",
-      number: "01",
-      title: "For the Food Lovers",
-      description:
-        "Authentic, rich heritage tastes. Bold local durian treats, artisanal chocolates, and smooth, comforting traditional white coffee.",
-    },
-    {
       icon: "🎨",
-      number: "02",
+      number: "01",
       title: "For the Art Collectors",
       description:
         "Custom-designed postcards, notebooks, and intricate 3D skyline memorabilia illustrating the soul of KL's landscape.",
     },
     {
       icon: "👜",
-      number: "03",
+      number: "02",
       title: "For the Lifestyle Explorers",
       description:
         "Premium, locally inspired accessories and contemporary textiles in partnership with independent Malaysian creators.",
+    },
+    {
+      icon: "🏮",
+      number: "03",
+      title: "For the Tradition Seekers",
+      description:
+        "Authentic Malaysian heritage pieces, decorative items, and cultural keepsakes that tell the story of our nation.",
     },
   ];
 
   const bestsellers = [
     {
       name: "Aesthetic KL KLCC Acrylic Magnets",
-      description: "Premium custom illustrations you cannot buy at traditional flea markets.",
+      description:
+        "Premium custom illustrations you cannot buy at traditional flea markets.",
       tag: "Bestseller Bundle - 5 for RM 50",
     },
     {
-      name: "Artisanal Durian Chocolate Bars",
-      description: "A luxurious sweet treat celebrating the king of tropical fruits.",
-      tag: "Premium Selection",
+      name: "Hand-Drawn Landmark Postcards",
+      description:
+        "Thick, texture-rich matte prints perfect for mailing across oceans.",
+      tag: "Traveler's Favorite",
     },
     {
-      name: "Hand-Drawn Landmark Postcards",
-      description: "Thick, texture-rich matte prints perfect for mailing across oceans.",
-      tag: "Traveler's Favorite",
+      name: "Premium 3D KLCC Skyline Memorabilia",
+      description:
+        "Intricate, collectible pieces celebrating Kuala Lumpur's iconic architecture.",
+      tag: "Collector's Edition",
     },
   ];
 
@@ -62,28 +65,37 @@ export default function Home() {
       {/* ========== Hero Section ========== */}
       <section className="relative w-full h-screen flex items-center justify-center overflow-hidden bg-linear-to-b from-amber-50 via-white to-white">
         {/* Background image placeholder with overlay */}
-        <div className="absolute inset-0 bg-cover bg-center opacity-20" 
-             style={{backgroundImage: "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 1200 800%22%3E%3Crect fill=%22%238C6239%22 width=%221200%22 height=%22800%22/%3E%3C/svg%3E)'"}}>
-        </div>
-        
+        <div
+          className="absolute inset-0 bg-cover bg-center opacity-20"
+          style={{
+            backgroundImage:
+              "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 1200 800%22%3E%3Crect fill=%22%238C6239%22 width=%221200%22 height=%22800%22/%3E%3C/svg%3E)'",
+          }}
+        ></div>
+
         <div className="relative z-10 max-w-4xl mx-auto px-6 text-center space-y-8">
           <h1 className="text-6xl md:text-7xl font-bold text-slate-900 leading-tight">
             Take a Happy Moment Home.
           </h1>
-          
+
           <p className="text-xl md:text-2xl text-gray-700 max-w-2xl mx-auto leading-relaxed">
-            Your Premium One-Stop Malaysian Souvenir Boutique, right in the heart of Kuala Lumpur.
+            Your Premium One-Stop Malaysian Souvenir Boutique, right in the
+            heart of Kuala Lumpur.
           </p>
-          
+
           <div className="flex flex-col sm:flex-row gap-4 justify-center pt-8">
             <Link href="#curation">
               <button className="px-8 py-4 bg-amber-700 hover:bg-amber-800 text-white rounded-full font-semibold text-lg transition-colors duration-200">
                 Explore Our Curation
               </button>
             </Link>
-            <a href="https://maps.app.goo.gl/suria-klcc" target="_blank" rel="noopener noreferrer">
+            <a
+              href="https://share.google/FuUQcoGAe3SJJBGbm"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               <button className="px-8 py-4 border-2 border-amber-700 text-amber-700 hover:bg-amber-50 rounded-full font-semibold text-lg transition-colors duration-200">
-                Get Directions (KLCC)
+                Get Directions (Rubber Park)
               </button>
             </a>
           </div>
@@ -95,7 +107,10 @@ export default function Home() {
         <div className="max-w-4xl mx-auto">
           <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-12 text-center">
             {greetings.map((greeting, idx) => (
-              <div key={idx} className={`text-sm font-light ${greeting.color} opacity-40 hover:opacity-100 transition-opacity`}>
+              <div
+                key={idx}
+                className={`text-sm font-light ${greeting.color} opacity-40 hover:opacity-100 transition-opacity`}
+              >
                 {greeting.text}
               </div>
             ))}
@@ -103,10 +118,14 @@ export default function Home() {
 
           <div className="border-t border-b border-gray-200 py-16 space-y-6">
             <p className="text-xl text-gray-900 font-semibold leading-relaxed">
-              Step out of the bustling streets of KL and into a sanctuary curated for the global traveler.
+              Step out of the bustling streets of KL and into a sanctuary
+              curated for the global traveler.
             </p>
             <p className="text-lg text-gray-700 leading-relaxed">
-              Traditional souvenir stalls can feel loud and chaotic. At Gembira Momento, we invite you to browse comfortably in a contemporary, gallery-inspired space where Malaysian heritage meets modern elegance.
+              Traditional souvenir stalls can feel loud and chaotic. At Gembira
+              Momento, we invite you to browse comfortably in a contemporary,
+              gallery-inspired space where Malaysian heritage meets modern
+              elegance.
             </p>
           </div>
         </div>
@@ -116,7 +135,9 @@ export default function Home() {
       <section id="curation" className="py-32 px-6 bg-amber-50">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-20">
-            <h2 className="text-5xl font-bold text-slate-900 mb-6">Our Curation</h2>
+            <h2 className="text-5xl font-bold text-slate-900 mb-6">
+              Our Curation
+            </h2>
             <p className="text-lg text-gray-700 max-w-2xl mx-auto">
               Thoughtfully selected collections for every traveler.
             </p>
@@ -190,13 +211,18 @@ export default function Home() {
                   Elevate Your Corporate Gifting
                 </h2>
               </div>
-              
+
               <p className="text-xl text-gray-300 leading-relaxed">
-                Premium Malaysian Curation for VIPs, Events, & International Guests.
+                Premium Malaysian Curation for VIPs, Events, & International
+                Guests.
               </p>
 
               <p className="text-gray-400 leading-relaxed">
-                Moving away from generic, mass-produced merchandise, Gembira Corporate crafts custom corporate gift packages. We bundle our signature local treats, artisanal goods, and custom artwork into elegant, minimalist wooden gift boxes that leave a lasting impression.
+                Moving away from generic, mass-produced merchandise, Gembira
+                Corporate crafts custom corporate gift packages. We bundle our
+                signature local treats, artisanal goods, and custom artwork into
+                elegant, minimalist wooden gift boxes that leave a lasting
+                impression.
               </p>
 
               <div>
@@ -243,7 +269,7 @@ export default function Home() {
               <h2 className="text-4xl font-bold text-slate-900">
                 Plan Your Visit
               </h2>
-              
+
               <div className="space-y-6">
                 <div>
                   <p className="text-sm font-semibold text-amber-700 uppercase tracking-wide">
@@ -259,7 +285,10 @@ export default function Home() {
                     Location
                   </p>
                   <p className="text-xl text-gray-900 mt-2">
-                    Suria KLCC, In Front of Petronas Twin Towers
+                    Rubber Park @ KLCC
+                  </p>
+                  <p className="text-lg text-gray-600 mt-1">
+                    No. 3, 148, Jln Ampang, Kampung Baru, 50450 Kuala Lumpur
                   </p>
                 </div>
 
@@ -273,11 +302,18 @@ export default function Home() {
                 </div>
               </div>
 
-              <Link href="/contact">
-                <button className="px-8 py-4 bg-amber-700 hover:bg-amber-800 text-white rounded-full font-semibold text-lg transition-colors duration-200">
-                  Get in Touch
-                </button>
-              </Link>
+              <div className="flex gap-4">
+                <Link href="/contact">
+                  <button className="px-8 py-4 bg-amber-700 hover:bg-amber-800 text-white rounded-full font-semibold text-lg transition-colors duration-200">
+                    Get in Touch
+                  </button>
+                </Link>
+                <a href="https://share.google/FuUQcoGAe3SJJBGbm" target="_blank" rel="noopener noreferrer">
+                  <button className="px-8 py-4 border-2 border-amber-700 text-amber-700 hover:bg-amber-50 rounded-full font-semibold text-lg transition-colors duration-200">
+                    Google Business Profile
+                  </button>
+                </a>
+              </div>
             </div>
 
             <div className="w-full h-96 bg-gray-200 rounded-lg overflow-hidden">
