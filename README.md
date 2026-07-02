@@ -23,6 +23,7 @@ A comprehensive Next.js-based sales analytics dashboard for Gembira Momento souv
 ### 🎯 Key Metrics
 
 For each analysis dimension:
+
 - Total sales (RM)
 - Transaction count
 - Cost of goods sold (COGS)
@@ -95,6 +96,7 @@ gembira-momento/
 ### Cost of Goods Sold (COGS)
 
 Products are matched via:
+
 1. **Primary**: SKU matching
 2. **Fallback**: Product name matching
 3. Items with missing supplier grouped as "(No supplier)"
@@ -136,7 +138,9 @@ Navigate to [http://localhost:3000/sales-assessment](http://localhost:3000/sales
 ## Features in Detail
 
 ### Daily Sales Tab
+
 Primary view showing:
+
 - Days in period
 - Total transactions
 - Total sales and costs
@@ -145,31 +149,40 @@ Primary view showing:
 Displays daily breakdown table with date, sales, cost, profit, and margin %.
 
 ### Sales by Time Tab
+
 Two viewing modes:
+
 - **By Hour**: Hourly breakdown with bar chart, trend line, and hourly table
 - **By Day of Week**: 7-day pattern analysis with mini trend charts per day
 
 ### Sales by Products Tab
+
 - Top 10 performing products bar chart
 - All products breakdown table
 - Unit quantities and cost analysis
 
 ### Payment Type Tab
+
 Shows breakdown of:
+
 - Cash payments
 - QR payments
 - Credit/Debit card payments
 - Total payment value
 
 ### Staff Performance Tab
+
 Individual staff metrics:
+
 - Sales value
 - Transaction count
 - Discounts given
 - Cost and profit analysis
 
 ### Sales by Supplier Tab
+
 Supplier-focused analytics:
+
 - Top 10 suppliers by sales
 - Complete supplier breakdown
 - Supplier profitability
@@ -178,6 +191,7 @@ Supplier-focused analytics:
 ## Export Functionality
 
 Generate PDF reports with:
+
 - All current dashboard metrics and charts
 - Timestamp and date range information
 - Professional A4 formatting

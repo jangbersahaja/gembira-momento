@@ -308,7 +308,11 @@ export default function Home() {
                     Get in Touch
                   </button>
                 </Link>
-                <a href="https://share.google/FuUQcoGAe3SJJBGbm" target="_blank" rel="noopener noreferrer">
+                <a
+                  href="https://share.google/FuUQcoGAe3SJJBGbm"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   <button className="px-8 py-4 border-2 border-amber-700 text-amber-700 hover:bg-amber-50 rounded-full font-semibold text-lg transition-colors duration-200">
                     Google Business Profile
                   </button>
