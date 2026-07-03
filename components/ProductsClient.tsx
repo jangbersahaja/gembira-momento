@@ -15,6 +15,7 @@ interface ProductData {
 
 interface SupplierGroup {
   supplier: string;
+  supplyType: string; // "(Consignment)" or "(Outright)" or empty
   productCount: number;
   totalRevenue: number;
   totalCost: number;
@@ -25,6 +26,23 @@ interface SupplierGroup {
 export default function ProductsClient() {
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null);
+
+  // Helper function to normalize supplier name and extract supply type
+  const normalizeSupplier = (supplierStr: string) => {
+    if (!supplierStr) return { base: "No Supplier", type: "" };
+
+    const consignmentMatch = supplierStr.match(/^(.+?)\s*\(Consignment\)$/i);
+    if (consignmentMatch) {
+      return { base: consignmentMatch[1].trim(), type: "(Consignment)" };
+    }
+
+    const outrightMatch = supplierStr.match(/^(.+?)\s*\(Outright\)$/i);
+    if (outrightMatch) {
+      return { base: outrightMatch[1].trim(), type: "(Outright)" };
+    }
+
+    return { base: supplierStr, type: "" };
+  };
 
   // Aggregate product data with transaction counts
   const productGroups = useMemo(() => {
@@ -59,7 +77,11 @@ export default function ProductsClient() {
       const name = String(product["Product Name"] || "");
       const cost = Number(product.Cost) || 0;
       const price = Number(product["Tax-Exclusive Price"]) || 0;
-      const supplier = String(product.Supplier || "");
+      const supplierRaw = String(product.Supplier || "");
+
+      // Normalize supplier name to extract base name and supply type
+      const { base: supplierBase, type: supplyType } =
+        normalizeSupplier(supplierRaw);
 
       const saleData = skuCounts.get(sku) || { units: 0, revenue: 0 };
 
@@ -72,11 +94,12 @@ export default function ProductsClient() {
         revenue: saleData.revenue,
       };
 
-      const key = supplier || "No Supplier";
+      const key = supplierBase; // Use normalized base name as key
 
       if (!groups.has(key)) {
         groups.set(key, {
           supplier: key,
+          supplyType: supplyType, // Store the supply type
           productCount: 0,
           totalRevenue: 0,
           totalCost: 0,
@@ -199,6 +222,11 @@ export default function ProductsClient() {
                           }`}
                         >
                           {group.supplier}
+                          {group.supplyType && (
+                            <span className="ml-2 text-sm font-normal text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                              {group.supplyType}
+                            </span>
+                          )}
                         </h2>
                         <p className="text-sm text-gray-600">
                           {group.productCount} products • {group.totalUnits}{" "}
@@ -257,13 +285,22 @@ export default function ProductsClient() {
                       {group.products.map((product) => (
                         <div
                           key={product.sku}
-                          className="px-6 py-3 grid grid-cols-12 gap-4 hover:bg-gray-50 text-sm"
+                          className={`px-6 py-3 grid grid-cols-12 gap-4 text-sm ${
+                            product.unitsSold === 0
+                              ? "bg-yellow-50 hover:bg-yellow-100"
+                              : "hover:bg-gray-50"
+                          }`}
                         >
                           <div className="col-span-1 font-mono text-xs text-gray-600">
                             {product.sku}
                           </div>
                           <div className="col-span-4 text-gray-900 truncate">
                             {product.name}
+                            {product.unitsSold === 0 && (
+                              <span className="ml-2 text-xs bg-yellow-200 text-yellow-900 px-2 py-1 rounded">
+                                No sales
+                              </span>
+                            )}
                           </div>
                           <div className="col-span-1 text-right text-gray-700">
                             RM {formatCurrency(product.cost)}
@@ -279,18 +316,21 @@ export default function ProductsClient() {
                           </div>
                           <div
                             className={`col-span-2 text-right font-semibold ${
-                              product.revenue -
-                                product.cost * product.unitsSold >
-                              0
-                                ? "text-green-700"
-                                : "text-gray-600"
+                              product.unitsSold === 0
+                                ? "text-gray-400"
+                                : product.revenue -
+                                      product.cost * product.unitsSold >
+                                    0
+                                  ? "text-green-700"
+                                  : "text-red-700"
                             }`}
                           >
-                            RM{" "}
-                            {formatCurrency(
-                              product.revenue -
-                                product.cost * product.unitsSold,
-                            )}
+                            {product.unitsSold === 0
+                              ? "—"
+                              : `RM ${formatCurrency(
+                                  product.revenue -
+                                    product.cost * product.unitsSold,
+                                )}`}
                           </div>
                         </div>
                       ))}
