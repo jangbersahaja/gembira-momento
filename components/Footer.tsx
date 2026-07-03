@@ -82,6 +82,14 @@ export default function Footer() {
                   Monthly Reports
                 </Link>
               </li>
+              <li>
+                <Link
+                  href="/products"
+                  className="hover:text-amber-400 transition-colors"
+                >
+                  Products Inventory
+                </Link>
+              </li>
             </ul>
           </div>
 

@@ -72,6 +72,12 @@ export default function Header() {
               Reports
             </Link>
             <Link
+              href="/products"
+              className="text-gray-700 hover:text-amber-700 transition-colors"
+            >
+              Products
+            </Link>
+            <Link
               href="#"
               className="text-gray-700 hover:text-amber-700 transition-colors"
             >
