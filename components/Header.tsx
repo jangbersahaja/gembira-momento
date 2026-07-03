@@ -66,6 +66,12 @@ export default function Header() {
               Corporate Gifting
             </Link>
             <Link
+              href="/reports"
+              className="text-gray-700 hover:text-amber-700 transition-colors"
+            >
+              Reports
+            </Link>
+            <Link
               href="#"
               className="text-gray-700 hover:text-amber-700 transition-colors"
             >

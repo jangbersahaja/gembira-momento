@@ -74,6 +74,14 @@ export default function Footer() {
                   Sales Dashboard
                 </Link>
               </li>
+              <li>
+                <Link
+                  href="/reports"
+                  className="hover:text-amber-400 transition-colors"
+                >
+                  Monthly Reports
+                </Link>
+              </li>
             </ul>
           </div>
 
