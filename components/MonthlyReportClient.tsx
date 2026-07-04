@@ -94,6 +94,13 @@ interface DailyData {
   profit: number;
 }
 
+interface HourlyData {
+  hour: number;
+  label: string;
+  revenue: number;
+  transactions: number;
+}
+
 interface ReportData {
   month: string;
   year: number;
@@ -101,6 +108,7 @@ interface ReportData {
   totalCost: number;
   totalProfit: number;
   dailyData: DailyData[];
+  hourlyData: HourlyData[];
   paymentBreakdown: Record<string, number>;
   topProducts: Array<{
     name: string;
@@ -141,6 +149,7 @@ function getMonthData(year: number, month: number): ReportData {
     totalCost: 0,
     totalProfit: 0,
     dailyData: [],
+    hourlyData: [],
     paymentBreakdown: {},
     topProducts: [],
     laborCost: 0,
@@ -155,12 +164,61 @@ function getMonthData(year: number, month: number): ReportData {
 
   // Aggregate transaction data by day
   const dailyDataMap = new Map<string, { revenue: number; cost: number }>();
-  const paymentMap = new Map<string, number>();
+  const hourlyDataMap = new Map<
+    number,
+    { revenue: number; transactions: number }
+  >();
   const productMap = new Map<
     string,
     { qty: number; revenue: number; cost: number }
   >();
 
+  // First pass: Calculate daily and hourly revenue from receipt totals (payment methods)
+  const receiptRevenueMap = new Map<string, number>();
+  for (const tx of transactions) {
+    const timeStr = getString(tx.Time);
+    const date = parseTime(timeStr);
+
+    if (!date || date.getMonth() !== month || date.getFullYear() !== year)
+      continue;
+
+    if (!isTotalRow(tx)) continue;
+
+    const receipt = getString(tx["Receipt Number"]);
+    const cash = typeof tx.Cash === "number" ? tx.Cash : Number(tx.Cash) || 0;
+    const creditCard =
+      typeof tx["Credit Card"] === "number"
+        ? tx["Credit Card"]
+        : Number(tx["Credit Card"]) || 0;
+    const debitCard =
+      typeof tx["Debit Card"] === "number"
+        ? tx["Debit Card"]
+        : Number(tx["Debit Card"]) || 0;
+    const qr = typeof tx.QR === "number" ? tx.QR : Number(tx.QR) || 0;
+
+    const receiptRevenue = cash + creditCard + debitCard + qr;
+    if (receiptRevenue > 0) {
+      receiptRevenueMap.set(receipt, receiptRevenue);
+
+      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      const hour = date.getHours();
+
+      // Daily revenue
+      const currentDaily = dailyDataMap.get(dateKey) || { revenue: 0, cost: 0 };
+      currentDaily.revenue += receiptRevenue;
+      dailyDataMap.set(dateKey, currentDaily);
+
+      // Hourly revenue
+      if (!hourlyDataMap.has(hour)) {
+        hourlyDataMap.set(hour, { revenue: 0, transactions: 0 });
+      }
+      const hourData = hourlyDataMap.get(hour)!;
+      hourData.revenue += receiptRevenue;
+      hourData.transactions += 1;
+    }
+  }
+
+  // Second pass: Process item rows for cost and product data
   for (const tx of transactions) {
     const timeStr = getString(tx.Time);
     const date = parseTime(timeStr);
@@ -179,34 +237,27 @@ function getMonthData(year: number, month: number): ReportData {
     if (!itemName) continue;
 
     const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    const subtotal =
-      typeof tx.SubTotal === "number" ? tx.SubTotal : Number(tx.SubTotal) || 0;
     const quantity =
       typeof tx.Quantity === "number" ? tx.Quantity : Number(tx.Quantity) || 0;
-
-    // Daily data - accumulate by item
-    const currentDaily = dailyDataMap.get(dateKey) || { revenue: 0, cost: 0 };
-    currentDaily.revenue += subtotal;
 
     // Cost calculation
     const sku = getString(tx.SKU);
     const itemCost = getCost(sku, itemName);
-    currentDaily.cost += itemCost * quantity;
+    const totalCost = itemCost * quantity;
 
+    // Daily data - accumulate costs
+    const currentDaily = dailyDataMap.get(dateKey) || { revenue: 0, cost: 0 };
+    currentDaily.cost += totalCost;
     dailyDataMap.set(dateKey, currentDaily);
 
-    // Payment breakdown - get from receipt level
-    const receipt = getString(tx["Receipt Number"]);
-    if (receipt && !paymentMap.has(receipt)) {
-      // Add payment method amount only once per receipt
-      const total =
-        typeof tx.Total === "number" ? tx.Total : Number(tx.Total) || 0;
-      if (total > 0) {
-        paymentMap.set(receipt, total);
-      }
-    }
+    // Product tracking - use item SubTotal for product-level reporting
+    const subtotal =
+      typeof tx.SubTotal === "number" ? tx.SubTotal : Number(tx.SubTotal) || 0;
+    const discountValue =
+      typeof tx.Discount === "number" ? tx.Discount : Number(tx.Discount) || 0;
+    const discount = Math.abs(discountValue);
+    const netSales = subtotal - discount;
 
-    // Product tracking
     if (itemName) {
       const current = productMap.get(itemName) || {
         qty: 0,
@@ -214,13 +265,13 @@ function getMonthData(year: number, month: number): ReportData {
         cost: 0,
       };
       current.qty += quantity;
-      current.revenue += subtotal;
-      current.cost += itemCost * quantity;
+      current.revenue += netSales;
+      current.cost += totalCost;
       productMap.set(itemName, current);
     }
   }
 
-  // Recalculate payment breakdown correctly
+  // Recalculate payment breakdown correctly and calculate revenue from payments
   const paymentBreakdownCorrect = new Map<string, number>();
   for (const tx of transactions) {
     const timeStr = getString(tx.Time);
@@ -230,10 +281,6 @@ function getMonthData(year: number, month: number): ReportData {
       continue;
 
     if (!isTotalRow(tx)) continue;
-
-    const total =
-      typeof tx.Total === "number" ? tx.Total : Number(tx.Total) || 0;
-    if (total <= 0) continue;
 
     const cash = typeof tx.Cash === "number" ? tx.Cash : Number(tx.Cash) || 0;
     const creditCard =
@@ -288,6 +335,23 @@ function getMonthData(year: number, month: number): ReportData {
   dailyArray.sort((a, b) => a.date.localeCompare(b.date));
   reportData.dailyData = dailyArray;
   reportData.totalProfit = reportData.totalRevenue - reportData.totalCost;
+
+  // Convert hourly data map to sorted array
+  const formatRangeLabel = (hour: number): string => {
+    const start = hour.toString().padStart(2, "0");
+    const end = ((hour + 1) % 24).toString().padStart(2, "0");
+    return `${start}:00 - ${end}:00`;
+  };
+
+  const hourlyArray: HourlyData[] = Array.from(hourlyDataMap.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([hour, data]) => ({
+      hour,
+      label: formatRangeLabel(hour),
+      revenue: data.revenue,
+      transactions: data.transactions,
+    }));
+  reportData.hourlyData = hourlyArray;
 
   // Payment breakdown - use the correct calculated map
   for (const [paymentType, amount] of paymentBreakdownCorrect) {
@@ -735,6 +799,40 @@ export default function MonthlyReportClient() {
                 name="Profit"
               />
             </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Hourly Sales Trend */}
+        <div className="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200">
+          <h3 className="text-lg font-bold text-slate-900 mb-4">
+            Hourly Sales Trend
+          </h3>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={reportData.hourlyData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis
+                dataKey="label"
+                angle={-45}
+                textAnchor="end"
+                height={100}
+              />
+              <YAxis yAxisId="left" />
+              <YAxis yAxisId="right" orientation="right" />
+              <Tooltip />
+              <Legend />
+              <Bar
+                yAxisId="left"
+                dataKey="revenue"
+                fill="#3b82f6"
+                name="Revenue (RM)"
+              />
+              <Bar
+                yAxisId="right"
+                dataKey="transactions"
+                fill="#8b5cf6"
+                name="Transactions"
+              />
+            </BarChart>
           </ResponsiveContainer>
         </div>
 

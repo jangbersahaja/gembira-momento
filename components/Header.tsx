@@ -66,18 +66,6 @@ export default function Header() {
               Corporate Gifting
             </Link>
             <Link
-              href="/reports"
-              className="text-gray-700 hover:text-amber-700 transition-colors"
-            >
-              Reports
-            </Link>
-            <Link
-              href="/products"
-              className="text-gray-700 hover:text-amber-700 transition-colors"
-            >
-              Products
-            </Link>
-            <Link
               href="#"
               className="text-gray-700 hover:text-amber-700 transition-colors"
             >
@@ -85,15 +73,17 @@ export default function Header() {
             </Link>
           </nav>
 
-          {/* Right CTA */}
-          <a
-            href="https://share.google/FuUQcoGAe3SJJBGbm"
-            target="_blank"
-            rel="noreferrer"
-            className="px-6 py-2.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-full transition-colors duration-200 text-sm"
-          >
-            Plan Your Visit
-          </a>
+          {/* Right CTA - Dashboard Access */}
+          <div className="flex items-center gap-4">
+            <a
+              href="https://share.google/FuUQcoGAe3SJJBGbm"
+              target="_blank"
+              rel="noreferrer"
+              className="px-6 py-2.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-full transition-colors duration-200 text-sm"
+            >
+              Plan Your Visit
+            </a>
+          </div>
 
           {/* Mobile Menu Button */}
           <button className="md:hidden text-slate-900 text-2xl">☰</button>

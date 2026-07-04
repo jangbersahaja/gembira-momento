@@ -68,26 +68,10 @@ export default function Footer() {
               </li>
               <li>
                 <Link
-                  href="/sales-assessment"
+                  href="/dashboard"
                   className="hover:text-amber-400 transition-colors"
                 >
-                  Sales Dashboard
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/reports"
-                  className="hover:text-amber-400 transition-colors"
-                >
-                  Monthly Reports
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/products"
-                  className="hover:text-amber-400 transition-colors"
-                >
-                  Products Inventory
+                  Management Portal
                 </Link>
               </li>
             </ul>

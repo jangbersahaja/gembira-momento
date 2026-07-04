@@ -2,6 +2,7 @@
 
 import products from "@/data/products";
 import transactions from "@/data/transactions";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 interface ProductData {
@@ -11,6 +12,7 @@ interface ProductData {
   price: number;
   unitsSold: number;
   revenue: number;
+  missingSkuWarning?: boolean; // Flag if product has no SKU
 }
 
 interface SupplierGroup {
@@ -48,9 +50,23 @@ export default function ProductsClient() {
   const productGroups = useMemo(() => {
     // First, count units sold per SKU from transactions
     const skuCounts = new Map<string, { units: number; revenue: number }>();
+    // Also track by name as fallback for products without SKU
+    const nameCounts = new Map<string, { units: number; revenue: number }>();
 
     for (const transaction of transactions) {
-      // Each transaction has Item, Quantity, SubTotal
+      // Only count item rows (where Item is not empty and is a Sale, not cancelled)
+      const item =
+        typeof transaction === "object" ? transaction.Item || "" : "";
+      const txType =
+        typeof transaction === "object" ? transaction["Transaction Type"] : "";
+      const isCancelled =
+        typeof transaction === "object" ? transaction.Is_Cancelled : "";
+
+      // Skip non-item rows or cancelled transactions
+      if (!item || txType !== "Sale" || isCancelled === "True") {
+        continue;
+      }
+
       const sku = typeof transaction === "object" ? transaction.SKU || "" : "";
       const qty =
         typeof transaction === "object" && transaction.Quantity
@@ -60,12 +76,26 @@ export default function ProductsClient() {
         typeof transaction === "object" && transaction.SubTotal
           ? Number(transaction.SubTotal) || 0
           : 0;
+      const discount =
+        typeof transaction === "object" && transaction.Discount
+          ? Number(transaction.Discount) || 0
+          : 0;
+      const netSales = Math.abs(subTotal) - Math.abs(discount);
 
-      if (sku && qty > 0) {
-        const current = skuCounts.get(sku) || { units: 0, revenue: 0 };
-        current.units += qty;
-        current.revenue += subTotal;
-        skuCounts.set(sku, current);
+      if (qty > 0) {
+        // Match by SKU first, fallback to name if no SKU
+        if (sku) {
+          const current = skuCounts.get(sku) || { units: 0, revenue: 0 };
+          current.units += qty;
+          current.revenue += netSales;
+          skuCounts.set(sku, current);
+        } else if (item) {
+          // Only use name if there's no SKU to avoid double-counting
+          const current = nameCounts.get(item) || { units: 0, revenue: 0 };
+          current.units += qty;
+          current.revenue += netSales;
+          nameCounts.set(item, current);
+        }
       }
     }
 
@@ -83,7 +113,12 @@ export default function ProductsClient() {
       const { base: supplierBase, type: supplyType } =
         normalizeSupplier(supplierRaw);
 
-      const saleData = skuCounts.get(sku) || { units: 0, revenue: 0 };
+      // Try to get sales data by SKU first, fallback to name if no SKU
+      let saleData = skuCounts.get(sku) || { units: 0, revenue: 0 };
+      if (!sku && name) {
+        // No SKU found, try matching by product name
+        saleData = nameCounts.get(name) || { units: 0, revenue: 0 };
+      }
 
       const productData: ProductData = {
         sku,
@@ -92,6 +127,7 @@ export default function ProductsClient() {
         price,
         unitsSold: saleData.units,
         revenue: saleData.revenue,
+        missingSkuWarning: !sku, // Flag products without SKU
       };
 
       const key = supplierBase; // Use normalized base name as key
@@ -283,24 +319,41 @@ export default function ProductsClient() {
 
                       {/* Product Rows */}
                       {group.products.map((product) => (
-                        <div
-                          key={product.sku}
-                          className={`px-6 py-3 grid grid-cols-12 gap-4 text-sm ${
-                            product.unitsSold === 0
-                              ? "bg-yellow-50 hover:bg-yellow-100"
-                              : "hover:bg-gray-50"
+                        <Link
+                          key={product.sku + product.name}
+                          href={`/products/${encodeURIComponent(product.sku)}`}
+                          className={`px-6 py-3 grid grid-cols-12 gap-4 text-sm transition-colors ${
+                            product.missingSkuWarning
+                              ? "bg-orange-50 hover:bg-orange-100 border-l-2 border-orange-400"
+                              : product.unitsSold === 0
+                                ? "bg-yellow-50 hover:bg-yellow-100"
+                                : "hover:bg-gray-50"
                           }`}
                         >
-                          <div className="col-span-1 font-mono text-xs text-gray-600">
-                            {product.sku}
+                          <div className="col-span-1 font-mono text-xs">
+                            {product.sku ? (
+                              <span className="text-gray-600">
+                                {product.sku}
+                              </span>
+                            ) : (
+                              <span className="text-orange-600 font-semibold"></span>
+                            )}
                           </div>
                           <div className="col-span-4 text-gray-900 truncate">
-                            {product.name}
-                            {product.unitsSold === 0 && (
-                              <span className="ml-2 text-xs bg-yellow-200 text-yellow-900 px-2 py-1 rounded">
-                                No sales
+                            <span className="hover:text-blue-600">
+                              {product.name}
+                            </span>
+                            {product.missingSkuWarning && (
+                              <span className="ml-2 text-xs bg-orange-200 text-orange-900 px-2 py-1 rounded">
+                                ⚠ No SKU
                               </span>
                             )}
+                            {product.unitsSold === 0 &&
+                              !product.missingSkuWarning && (
+                                <span className="ml-2 text-xs bg-yellow-200 text-yellow-900 px-2 py-1 rounded">
+                                  No sales
+                                </span>
+                              )}
                           </div>
                           <div className="col-span-1 text-right text-gray-700">
                             RM {formatCurrency(product.cost)}
@@ -332,7 +385,7 @@ export default function ProductsClient() {
                                     product.cost * product.unitsSold,
                                 )}`}
                           </div>
-                        </div>
+                        </Link>
                       ))}
                     </div>
                   </div>

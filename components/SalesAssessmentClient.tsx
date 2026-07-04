@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import products from "../data/products";
+import timesheets from "../data/timesheets";
 import transactions from "../data/transactions";
 import {
   DayOfWeekTrendCharts,
@@ -19,6 +20,23 @@ import {
 } from "./SalesChart";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
+
+// Helper function to normalize supplier name and extract supply type
+const normalizeSupplier = (supplierStr: string) => {
+  if (!supplierStr) return { base: "No Supplier", type: "" };
+
+  const consignmentMatch = supplierStr.match(/^(.+?)\s*\(Consignment\)$/i);
+  if (consignmentMatch) {
+    return { base: consignmentMatch[1].trim(), type: "(Consignment)" };
+  }
+
+  const outrightMatch = supplierStr.match(/^(.+?)\s*\(Outright\)$/i);
+  if (outrightMatch) {
+    return { base: outrightMatch[1].trim(), type: "(Outright)" };
+  }
+
+  return { base: supplierStr, type: "" };
+};
 
 // Create cost lookup maps from product SKU and product name
 const costBySkuMap = new Map<string, number>();
@@ -58,18 +76,37 @@ const getCost = (sku: string, productName: string): number => {
 };
 
 const parseTime = (timeString: string): Date | null => {
-  const match = timeString.match(
+  // Try format with day name: "04/15/2026 Wednesday 16:29"
+  let match = timeString.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+\w+\s+(\d{1,2}):(\d{2})$/,
+  );
+  if (match) {
+    const [, month, day, year, hour, minute] = match;
+    return new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+    );
+  }
+
+  // Try format without day name: "04/15/2026 16:29"
+  match = timeString.match(
     /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/,
   );
-  if (!match) return null;
-  const [, month, day, year, hour, minute] = match;
-  return new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-  );
+  if (match) {
+    const [, month, day, year, hour, minute] = match;
+    return new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+    );
+  }
+
+  return null;
 };
 
 const formatRangeLabel = (hour: number) => {
@@ -167,8 +204,9 @@ const getPresetRange = (preset: Preset): { from: Date; to: Date } | null => {
 
 const groupByHour = (from: Date | null, to: Date | null) => {
   const hourlyMap = new Map<number, { total: number; transactions: number }>();
-  const dates = new Set<string>();
+  const receiptMap = new Map<string, { hour: number; total: number }>();
 
+  // First pass: collect receipt totals from payment methods
   for (const row of transactions) {
     if (!isTotalRow(row)) continue;
     const date = parseTime(row.Time);
@@ -177,9 +215,20 @@ const groupByHour = (from: Date | null, to: Date | null) => {
     if (to && date > to) continue;
 
     const hour = date.getHours();
-    const total = getAmount(row.Total);
-    dates.add(`${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`);
+    const receipt = getString(row["Receipt Number"]);
+    const cash = getAmount(row.Cash);
+    const qr = getAmount(row.QR);
+    const creditCard = getAmount(row["Credit Card"]);
+    const debitCard = getAmount(row["Debit Card"]);
+    const total = cash + qr + creditCard + debitCard;
 
+    if (total > 0 && !receiptMap.has(receipt)) {
+      receiptMap.set(receipt, { hour, total });
+    }
+  }
+
+  // Second pass: aggregate by hour
+  for (const { hour, total } of receiptMap.values()) {
     if (!hourlyMap.has(hour))
       hourlyMap.set(hour, { total: 0, transactions: 0 });
     const current = hourlyMap.get(hour)!;
@@ -197,18 +246,30 @@ const groupByHour = (from: Date | null, to: Date | null) => {
 
   return {
     hourly,
-    dateCount: dates.size,
+    dateCount: receiptMap.size,
     transactionCount: hourly.reduce((s, r) => s + r.transactions, 0),
     totalSales: hourly.reduce((s, r) => s + r.total, 0),
   };
 };
-
 const groupByDay = (from: Date | null, to: Date | null) => {
   const dailyMap = new Map<
     string,
-    { total: number; transactions: number; cost: number }
+    {
+      total: number;
+      transactions: number;
+      cost: number;
+      firstTxnHour?: string;
+      lastTxnHour?: string;
+      openingTime?: string;
+      closingTime?: string;
+    }
+  >();
+  const receiptMap = new Map<
+    string,
+    { date: string; total: number; time: string }
   >();
 
+  // First pass: collect receipt totals from payment methods and track times
   for (const row of transactions) {
     if (!isTotalRow(row)) continue;
     const date = parseTime(row.Time);
@@ -217,17 +278,119 @@ const groupByDay = (from: Date | null, to: Date | null) => {
     if (to && date > to) continue;
 
     const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    const total = getAmount(row.Total);
+    const receipt = getString(row["Receipt Number"]);
+    const cash = getAmount(row.Cash);
+    const qr = getAmount(row.QR);
+    const creditCard = getAmount(row["Credit Card"]);
+    const debitCard = getAmount(row["Debit Card"]);
+    const total = cash + qr + creditCard + debitCard;
+    const timeStr = getString(row.Time);
+    const hour = date.getHours().toString().padStart(2, "0");
+    const minute = date.getMinutes().toString().padStart(2, "0");
+    const hourMinute = `${hour}:${minute}`;
 
-    if (!dailyMap.has(dateKey)) {
-      dailyMap.set(dateKey, { total: 0, transactions: 0, cost: 0 });
+    if (total > 0 && !receiptMap.has(receipt)) {
+      receiptMap.set(receipt, { date: dateKey, total, time: timeStr });
+      if (!dailyMap.has(dateKey)) {
+        dailyMap.set(dateKey, {
+          total: 0,
+          transactions: 0,
+          cost: 0,
+          firstTxnHour: hourMinute,
+          lastTxnHour: hourMinute,
+        });
+      }
+      const current = dailyMap.get(dateKey)!;
+      current.total += total;
+      current.transactions += 1;
+      // Update last time (since we're iterating in order, this will be the latest)
+      current.lastTxnHour = hourMinute;
     }
-    const current = dailyMap.get(dateKey)!;
-    current.total += total;
-    current.transactions += 1;
   }
 
-  // Calculate cost for each day by re-processing item rows
+  // Second pass: add opening and closing times from timesheets for all dates
+  for (const sheet of timesheets) {
+    const timeInStr = getString(sheet["Time In"]);
+    const timeOutStr = getString(sheet["Time Out"]);
+
+    if (timeInStr) {
+      const timeInDate = parseTime(timeInStr);
+      if (timeInDate) {
+        const dateKey = `${timeInDate.getFullYear()}-${String(timeInDate.getMonth() + 1).padStart(2, "0")}-${String(timeInDate.getDate()).padStart(2, "0")}`;
+        const hour = timeInDate.getHours().toString().padStart(2, "0");
+        const minute = timeInDate.getMinutes().toString().padStart(2, "0");
+        const timeDisplay = `${hour}:${minute}`;
+
+        // Create entry if it doesn't exist
+        if (!dailyMap.has(dateKey)) {
+          dailyMap.set(dateKey, {
+            total: 0,
+            transactions: 0,
+            cost: 0,
+            openingTime: timeDisplay,
+            closingTime: timeDisplay,
+          });
+        } else {
+          const current = dailyMap.get(dateKey)!;
+          // Set opening time if not set or if this is earlier
+          if (!current.openingTime) {
+            current.openingTime = timeDisplay;
+          } else {
+            const existingHour = parseInt(current.openingTime.split(":")[0]);
+            const existingMin = parseInt(current.openingTime.split(":")[1]);
+            const newHour = parseInt(hour);
+            const newMin = parseInt(minute);
+            if (
+              newHour < existingHour ||
+              (newHour === existingHour && newMin < existingMin)
+            ) {
+              current.openingTime = timeDisplay;
+            }
+          }
+        }
+      }
+    }
+
+    if (timeOutStr) {
+      const timeOutDate = parseTime(timeOutStr);
+      if (timeOutDate) {
+        const dateKey = `${timeOutDate.getFullYear()}-${String(timeOutDate.getMonth() + 1).padStart(2, "0")}-${String(timeOutDate.getDate()).padStart(2, "0")}`;
+        const hour = timeOutDate.getHours().toString().padStart(2, "0");
+        const minute = timeOutDate.getMinutes().toString().padStart(2, "0");
+        const timeDisplay = `${hour}:${minute}`;
+
+        // Create entry if it doesn't exist
+        if (!dailyMap.has(dateKey)) {
+          dailyMap.set(dateKey, {
+            total: 0,
+            transactions: 0,
+            cost: 0,
+            openingTime: timeDisplay,
+            closingTime: timeDisplay,
+          });
+        } else {
+          const current = dailyMap.get(dateKey)!;
+          // Set closing time if not set or if this is later
+          if (!current.closingTime) {
+            current.closingTime = timeDisplay;
+          } else {
+            const existingHour = parseInt(current.closingTime.split(":")[0]);
+            const existingMin = parseInt(current.closingTime.split(":")[1]);
+            const newHour = parseInt(hour);
+            const newMin = parseInt(minute);
+            if (
+              newHour > existingHour ||
+              (newHour === existingHour && newMin > existingMin)
+            ) {
+              current.closingTime = timeDisplay;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Second pass: calculate cost for each day by processing item rows
   for (const row of transactions) {
     if (!isItemRow(row)) continue;
     const date = parseTime(getString(row.Time));
@@ -255,21 +418,42 @@ const groupByDay = (from: Date | null, to: Date | null) => {
     cost: number;
     profit: number;
     margin: number;
+    firstTxnHour?: string;
+    lastTxnHour?: string;
+    openingTime?: string;
+    closingTime?: string;
   }> = Array.from(dailyMap.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([dateKey, { total, transactions, cost }]) => {
-      const profit = total - cost;
-      const margin = total > 0 ? (profit / total) * 100 : 0;
-      return {
-        date: dateKey,
-        label: dateKey,
-        total,
-        transactions,
-        cost,
-        profit,
-        margin,
-      };
-    });
+    .map(
+      ([
+        dateKey,
+        {
+          total,
+          transactions,
+          cost,
+          firstTxnHour,
+          lastTxnHour,
+          openingTime,
+          closingTime,
+        },
+      ]) => {
+        const profit = total - cost;
+        const margin = total > 0 ? (profit / total) * 100 : 0;
+        return {
+          date: dateKey,
+          label: dateKey,
+          total,
+          transactions,
+          cost,
+          profit,
+          margin,
+          firstTxnHour,
+          lastTxnHour,
+          openingTime,
+          closingTime,
+        };
+      },
+    );
 
   return {
     daily,
@@ -305,6 +489,11 @@ const groupByDayOfWeek = (from: Date | null, to: Date | null) => {
     dayMap.set(i, { hourly: new Map(), total: 0, transactions: 0 });
   }
 
+  // First pass: aggregate receipt totals by day of week
+  const receiptMap = new Map<
+    string,
+    { day: number; hour: number; total: number }
+  >();
   for (const row of transactions) {
     if (!isTotalRow(row)) continue;
     const date = parseTime(row.Time);
@@ -314,21 +503,29 @@ const groupByDayOfWeek = (from: Date | null, to: Date | null) => {
 
     // Convert JavaScript getDay() (0=Sunday) to our format (0=Monday)
     let dayOfWeek = date.getDay();
-    dayOfWeek = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert: Sunday(0)->6, Mon(1)->0, ..., Sat(6)->5
+    dayOfWeek = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 
     const hour = date.getHours();
-    const total = getAmount(row.Total);
+    const receipt = getString(row["Receipt Number"]);
+    const cash = getAmount(row.Cash);
+    const qr = getAmount(row.QR);
+    const creditCard = getAmount(row["Credit Card"]);
+    const debitCard = getAmount(row["Debit Card"]);
+    const total = cash + qr + creditCard + debitCard;
 
-    const dayData = dayMap.get(dayOfWeek)!;
-    dayData.total += total;
-    dayData.transactions += 1;
+    if (total > 0 && !receiptMap.has(receipt)) {
+      receiptMap.set(receipt, { day: dayOfWeek, hour, total });
+      const dayData = dayMap.get(dayOfWeek)!;
+      dayData.total += total;
+      dayData.transactions += 1;
 
-    if (!dayData.hourly.has(hour)) {
-      dayData.hourly.set(hour, { total: 0, transactions: 0 });
+      if (!dayData.hourly.has(hour)) {
+        dayData.hourly.set(hour, { total: 0, transactions: 0 });
+      }
+      const hourData = dayData.hourly.get(hour)!;
+      hourData.total += total;
+      hourData.transactions += 1;
     }
-    const hourData = dayData.hourly.get(hour)!;
-    hourData.total += total;
-    hourData.transactions += 1;
   }
 
   const daysOfWeek: DayOfWeekPoint[] = Array.from(dayMap.entries())
@@ -363,26 +560,8 @@ const groupByProduct = (from: Date | null, to: Date | null) => {
     string,
     { total: number; quantity: number; cost: number; sku: string }
   >();
-  const receiptMap = new Map<string, { subtotal: number; discount: number }>();
 
-  // First pass: collect receipt-level data for discount distribution
-  for (const row of transactions) {
-    if (!isTotalRow(row)) continue;
-    const date = parseTime(row.Time);
-    if (!date) continue;
-    if (from && date < from) continue;
-    if (to && date > to) continue;
-
-    const receiptNum = getString(row["Receipt Number"]);
-    if (receiptNum && !receiptMap.has(receiptNum)) {
-      receiptMap.set(receiptNum, {
-        subtotal: getAmount(row.SubTotal),
-        discount: Math.abs(getAmount(row.Discount)), // discount is stored as negative, convert to positive
-      });
-    }
-  }
-
-  // Second pass: aggregate products with discount applied
+  // Aggregate products - Calculate net sales (SubTotal - Discount)
   for (const row of transactions) {
     if (!isItemRow(row)) continue;
 
@@ -392,20 +571,11 @@ const groupByProduct = (from: Date | null, to: Date | null) => {
     if (to && date > to) continue;
 
     const name = getString(row.Item);
-    const itemSubtotal = getAmount(row.SubTotal);
+    const subtotal = getAmount(row.SubTotal);
+    const discount = Math.abs(getAmount(row.Discount)); // discount is stored as negative, convert to positive
+    const netSales = subtotal - discount; // Net sales after discount
     const quantity = getQuantity(row.Quantity);
-    const receiptNum = getString(row["Receipt Number"]);
     const sku = getString(row.SKU);
-
-    // Get receipt-level data to calculate discount proportion
-    const receiptData = receiptMap.get(receiptNum);
-    let amount = itemSubtotal;
-
-    if (receiptData && receiptData.subtotal > 0 && receiptData.discount > 0) {
-      // Apply discount proportionally to this item
-      const discountRatio = receiptData.discount / receiptData.subtotal;
-      amount = itemSubtotal * (1 - discountRatio);
-    }
 
     const unitCost = getCost(sku, name);
     const totalCost = unitCost * quantity;
@@ -415,7 +585,7 @@ const groupByProduct = (from: Date | null, to: Date | null) => {
     }
 
     const current = productsMap.get(name)!;
-    current.total += amount;
+    current.total += netSales;
     current.quantity += quantity;
     current.cost += totalCost;
   }
@@ -515,10 +685,10 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
   >();
   const receiptMap = new Map<
     string,
-    { subtotal: number; discount: number; employee: string }
+    { employee: string; hasProcessed: boolean }
   >();
 
-  // First pass: collect receipt-level data and staff info
+  // First pass: collect receipt-level staff info
   for (const row of transactions) {
     if (!isTotalRow(row)) continue;
     const date = parseTime(row.Time);
@@ -530,14 +700,13 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
     const employee = getString(row.Employee);
     if (receiptNum && !receiptMap.has(receiptNum)) {
       receiptMap.set(receiptNum, {
-        subtotal: getAmount(row.SubTotal),
-        discount: Math.abs(getAmount(row.Discount)),
         employee: employee || "",
+        hasProcessed: false,
       });
     }
   }
 
-  // Second pass: aggregate staff data with cost tracking
+  // Second pass: aggregate staff data with net sales and cost tracking
   for (const row of transactions) {
     if (!isItemRow(row)) continue;
 
@@ -555,6 +724,9 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
 
     const sku = getString(row.SKU);
     const quantity = getQuantity(row.Quantity);
+    const subtotal = getAmount(row.SubTotal);
+    const discount = Math.abs(getAmount(row.Discount));
+    const netSales = subtotal - discount;
 
     const unitCost = getCost(sku, getString(row.Item));
     const totalCost = unitCost * quantity;
@@ -569,10 +741,12 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
     }
 
     const current = staffMap.get(employee)!;
+    current.sales += netSales;
     current.cost += totalCost;
+    current.discountGiven += discount;
   }
 
-  // Third pass: aggregate transaction-level staff data (sales, transactions, discounts)
+  // Third pass: count transactions per staff
   for (const row of transactions) {
     if (!isTotalRow(row)) continue;
 
@@ -584,9 +758,6 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
     const employee = getString(row.Employee);
     if (!employee) continue;
 
-    const sales = getAmount(row.Total);
-    const discount = Math.abs(getAmount(row.Discount));
-
     if (!staffMap.has(employee)) {
       staffMap.set(employee, {
         sales: 0,
@@ -597,9 +768,7 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
     }
 
     const current = staffMap.get(employee)!;
-    current.sales += sales;
     current.transactions += 1;
-    current.discountGiven += discount;
   }
 
   const staffPoints: StaffPoint[] = Array.from(staffMap.entries())
@@ -637,30 +806,20 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
 };
 
 const groupBySupplier = (from: Date | null, to: Date | null) => {
-  const supplierMap = new Map<
-    string,
-    { total: number; quantity: number; cost: number }
-  >();
-  const receiptMap = new Map<string, { subtotal: number; discount: number }>();
-
-  // First pass: collect receipt-level data for discount distribution
-  for (const row of transactions) {
-    if (!isTotalRow(row)) continue;
-    const date = parseTime(row.Time);
-    if (!date) continue;
-    if (from && date < from) continue;
-    if (to && date > to) continue;
-
-    const receiptNum = getString(row["Receipt Number"]);
-    if (receiptNum && !receiptMap.has(receiptNum)) {
-      receiptMap.set(receiptNum, {
-        subtotal: getAmount(row.SubTotal),
-        discount: Math.abs(getAmount(row.Discount)),
-      });
+  // Map to track data per supplier AND supply type combination
+  const supplierTypeMap = new Map<
+    string, // key: "supplier|supplyType"
+    {
+      supplier: string;
+      supplyType: "Consignment" | "Outright";
+      subtotal: number;
+      total: number;
+      quantity: number;
+      cost: number;
     }
-  }
+  >();
 
-  // Second pass: aggregate suppliers with discount applied
+  // Aggregate suppliers with both subtotal and net sales
   for (const row of transactions) {
     if (!isItemRow(row)) continue;
 
@@ -669,59 +828,102 @@ const groupBySupplier = (from: Date | null, to: Date | null) => {
     if (from && date < from) continue;
     if (to && date > to) continue;
 
-    const itemSubtotal = getAmount(row.SubTotal);
+    const subtotal = getAmount(row.SubTotal);
+    const discount = Math.abs(getAmount(row.Discount));
+    const netSales = subtotal - discount; // Net sales after discount
     const quantity = getQuantity(row.Quantity);
-    const receiptNum = getString(row["Receipt Number"]);
     const sku = getString(row.SKU);
-    const name = getString(row.Item);
+    const name = getString(row.Item).trim(); // Trim whitespace
 
     // Find supplier from products data
-    const product = products.find(
-      (p) => p.SKU === sku || p["Product Name"] === name,
-    );
-    const supplierName = product ? getString(product.Supplier || "") : "";
-    const displaySupplier =
-      supplierName && supplierName.trim() ? supplierName : "(No supplier)";
+    // Try matching by: 1) SKU, 2) exact product name, 3) trimmed product name, 4) case-insensitive name
+    let product = sku && products.find((p) => p.SKU === sku);
 
-    // Get receipt-level data to calculate discount proportion
-    const receiptData = receiptMap.get(receiptNum);
-    let amount = itemSubtotal;
-
-    if (receiptData && receiptData.subtotal > 0 && receiptData.discount > 0) {
-      const discountRatio = receiptData.discount / receiptData.subtotal;
-      amount = itemSubtotal * (1 - discountRatio);
+    if (!product && name) {
+      // Try exact name match
+      product = products.find((p) => p["Product Name"] === name);
     }
+
+    if (!product && name) {
+      // Try trimmed name match
+      product = products.find((p) => String(p["Product Name"]).trim() === name);
+    }
+
+    if (!product && name) {
+      // Try case-insensitive name match as fallback
+      product = products.find(
+        (p) =>
+          String(p["Product Name"]).toLowerCase().trim() === name.toLowerCase(),
+      );
+    }
+
+    const supplierName = product ? getString(product.Supplier || "") : "";
+
+    // Normalize supplier name to extract base name and supply type
+    const { base: supplierBase, type: supplyTypeTag } =
+      normalizeSupplier(supplierName);
+    const displaySupplier =
+      supplierBase && supplierBase.trim() ? supplierBase : "(No supplier)";
+
+    // Determine supply type: if has Consignment tag, it's Consignment, otherwise Outright
+    const supplyType: "Consignment" | "Outright" = supplyTypeTag.includes(
+      "Consignment",
+    )
+      ? "Consignment"
+      : "Outright";
 
     const unitCost = getCost(sku, name);
     const totalCost = unitCost * quantity;
 
-    if (!supplierMap.has(displaySupplier)) {
-      supplierMap.set(displaySupplier, { total: 0, quantity: 0, cost: 0 });
+    // Create unique key for supplier + supply type combination
+    const key = `${displaySupplier}|${supplyType}`;
+
+    if (!supplierTypeMap.has(key)) {
+      supplierTypeMap.set(key, {
+        supplier: displaySupplier,
+        supplyType,
+        subtotal: 0,
+        total: 0,
+        quantity: 0,
+        cost: 0,
+      });
     }
 
-    const current = supplierMap.get(displaySupplier)!;
-    current.total += amount;
+    const current = supplierTypeMap.get(key)!;
+    current.subtotal += subtotal;
+    current.total += netSales;
     current.quantity += quantity;
     current.cost += totalCost;
   }
 
   const suppliers: Array<{
     supplier: string;
+    supplyType: "Consignment" | "Outright";
+    subtotal: number;
     total: number;
     quantity: number;
     cost: number;
     profit: number;
     margin: number;
-  }> = Array.from(supplierMap.entries())
-    .map(([supplier, { total, quantity, cost }]) => ({
+  }> = Array.from(supplierTypeMap.values())
+    .map(({ supplier, supplyType, subtotal, total, quantity, cost }) => ({
       supplier,
+      supplyType,
+      subtotal,
       total,
       quantity,
       cost,
       profit: total - cost,
       margin: total > 0 ? ((total - cost) / total) * 100 : 0,
     }))
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => {
+      // Sort by total sales (highest first)
+      if (b.total !== a.total) {
+        return b.total - a.total;
+      }
+      // Then by supply type (Consignment first)
+      return a.supplyType === "Consignment" ? -1 : 1;
+    });
 
   return {
     suppliers,
@@ -1135,6 +1337,10 @@ export default function SalesAssessmentClient() {
                   <thead className="bg-gray-50 text-gray-700">
                     <tr>
                       <th className="px-4 py-3 font-medium">Date</th>
+                      <th className="px-4 py-3 font-medium">Opening</th>
+                      <th className="px-4 py-3 font-medium">Closing</th>
+                      <th className="px-4 py-3 font-medium">First Txn</th>
+                      <th className="px-4 py-3 font-medium">Last Txn</th>
                       <th className="px-4 py-3 font-medium">Transactions</th>
                       <th className="px-4 py-3 font-medium">Sales RM</th>
                       <th className="px-4 py-3 font-medium">Cost RM</th>
@@ -1144,10 +1350,33 @@ export default function SalesAssessmentClient() {
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {daily.map(
-                      ({ date, transactions, total, cost, profit, margin }) => (
+                      ({
+                        date,
+                        openingTime,
+                        closingTime,
+                        firstTxnHour,
+                        lastTxnHour,
+                        transactions,
+                        total,
+                        cost,
+                        profit,
+                        margin,
+                      }) => (
                         <tr key={date} className="hover:bg-gray-50">
                           <td className="px-4 py-3 font-medium text-gray-900">
                             {date}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {openingTime || "-"}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {closingTime || "-"}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {firstTxnHour || "-"}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {lastTxnHour || "-"}
                           </td>
                           <td className="px-4 py-3">{transactions}</td>
                           <td className="px-4 py-3">
@@ -1279,6 +1508,7 @@ export default function SalesAssessmentClient() {
                               <th className="px-4 py-3 font-medium">
                                 Transactions
                               </th>
+                              <th className="px-4 py-3 font-medium">Trans %</th>
                               <th className="px-4 py-3 font-medium">
                                 Sales RM
                               </th>
@@ -1295,6 +1525,15 @@ export default function SalesAssessmentClient() {
                                     {label}
                                   </td>
                                   <td className="px-4 py-3">{transactions}</td>
+                                  <td className="px-4 py-3 text-amber-600 font-medium">
+                                    {transactionCount > 0
+                                      ? (
+                                          (transactions / transactionCount) *
+                                          100
+                                        ).toFixed(1)
+                                      : "0.0"}
+                                    %
+                                  </td>
                                   <td className="px-4 py-3">
                                     RM {formatCurrency(total)}
                                   </td>
@@ -1861,49 +2100,330 @@ export default function SalesAssessmentClient() {
               <h2 className="text-xl font-semibold text-foreground mb-1">
                 All suppliers
               </h2>
-              <p className="text-sm text-gray-500 mb-4">
+              <p className="text-sm text-gray-500 mb-6">
                 Complete supplier performance breakdown with sales, cost, and
                 profit.
               </p>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-                  <thead className="bg-gray-50 text-gray-700">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Supplier</th>
-                      <th className="px-4 py-3 font-medium">Units</th>
-                      <th className="px-4 py-3 font-medium">Sales RM</th>
-                      <th className="px-4 py-3 font-medium">Cost RM</th>
-                      <th className="px-4 py-3 font-medium">Profit RM</th>
-                      <th className="px-4 py-3 font-medium">Margin %</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {suppliers.map(
-                      ({ supplier, quantity, total, cost, profit, margin }) => (
-                        <tr key={supplier} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 font-medium text-gray-900">
-                            {supplier}
-                          </td>
-                          <td className="px-4 py-3">
-                            {formatNumber(quantity)}
-                          </td>
-                          <td className="px-4 py-3">
-                            RM {formatCurrency(total)}
-                          </td>
-                          <td className="px-4 py-3">
-                            RM {formatCurrency(cost)}
-                          </td>
-                          <td className="px-4 py-3 font-medium text-green-600">
-                            RM {formatCurrency(profit)}
-                          </td>
-                          <td className="px-4 py-3 text-gray-500">
-                            {margin.toFixed(1)}%
-                          </td>
-                        </tr>
-                      ),
-                    )}
-                  </tbody>
-                </table>
+
+              {/* Consignment suppliers */}
+              <div className="mb-8">
+                <h3 className="text-lg font-semibold text-foreground mb-4">
+                  Consignment Suppliers
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
+                    <thead className="bg-gray-50 text-gray-700">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Supplier</th>
+                        <th className="px-4 py-3 font-medium">Units</th>
+                        <th className="px-4 py-3 font-medium">SubTotal RM</th>
+                        <th className="px-4 py-3 font-medium">Total RM</th>
+                        <th className="px-4 py-3 font-medium">Cost RM</th>
+                        <th className="px-4 py-3 font-medium">Profit RM</th>
+                        <th className="px-4 py-3 font-medium">Margin %</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {suppliers
+                        .filter((s) => s.supplyType === "Consignment")
+                        .map(
+                          ({
+                            supplier,
+                            quantity,
+                            subtotal,
+                            total,
+                            cost,
+                            profit,
+                            margin,
+                          }) => (
+                            <tr key={supplier} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 font-medium text-gray-900">
+                                {supplier}
+                              </td>
+                              <td className="px-4 py-3">
+                                {formatNumber(quantity)}
+                              </td>
+                              <td className="px-4 py-3">
+                                RM {formatCurrency(subtotal)}
+                              </td>
+                              <td className="px-4 py-3">
+                                RM {formatCurrency(total)}
+                              </td>
+                              <td className="px-4 py-3">
+                                RM {formatCurrency(cost)}
+                              </td>
+                              <td className="px-4 py-3 font-medium text-green-600">
+                                RM {formatCurrency(profit)}
+                              </td>
+                              <td className="px-4 py-3 text-gray-500">
+                                {margin.toFixed(1)}%
+                              </td>
+                            </tr>
+                          ),
+                        )}
+                      <tr className="bg-gray-100 font-semibold">
+                        <td className="px-4 py-3">Consignment Subtotal</td>
+                        <td className="px-4 py-3">
+                          {formatNumber(
+                            suppliers
+                              .filter((s) => s.supplyType === "Consignment")
+                              .reduce((sum, s) => sum + s.quantity, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          RM{" "}
+                          {formatCurrency(
+                            suppliers
+                              .filter((s) => s.supplyType === "Consignment")
+                              .reduce((sum, s) => sum + s.subtotal, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          RM{" "}
+                          {formatCurrency(
+                            suppliers
+                              .filter((s) => s.supplyType === "Consignment")
+                              .reduce((sum, s) => sum + s.total, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          RM{" "}
+                          {formatCurrency(
+                            suppliers
+                              .filter((s) => s.supplyType === "Consignment")
+                              .reduce((sum, s) => sum + s.cost, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          RM{" "}
+                          {formatCurrency(
+                            suppliers
+                              .filter((s) => s.supplyType === "Consignment")
+                              .reduce((sum, s) => sum + s.profit, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {(
+                            (suppliers
+                              .filter((s) => s.supplyType === "Consignment")
+                              .reduce((sum, s) => sum + s.profit, 0) /
+                              suppliers
+                                .filter((s) => s.supplyType === "Consignment")
+                                .reduce((sum, s) => sum + s.total, 0)) *
+                            100
+                          ).toFixed(1)}
+                          %
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Outright suppliers */}
+              <div className="mb-8">
+                <h3 className="text-lg font-semibold text-foreground mb-4">
+                  Outright Suppliers
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
+                    <thead className="bg-gray-50 text-gray-700">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Supplier</th>
+                        <th className="px-4 py-3 font-medium">Units</th>
+                        <th className="px-4 py-3 font-medium">SubTotal RM</th>
+                        <th className="px-4 py-3 font-medium">Total RM</th>
+                        <th className="px-4 py-3 font-medium">Cost RM</th>
+                        <th className="px-4 py-3 font-medium">Profit RM</th>
+                        <th className="px-4 py-3 font-medium">Margin %</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {suppliers
+                        .filter((s) => s.supplyType === "Outright")
+                        .map(
+                          ({
+                            supplier,
+                            quantity,
+                            subtotal,
+                            total,
+                            cost,
+                            profit,
+                            margin,
+                          }) => (
+                            <tr key={supplier} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 font-medium text-gray-900">
+                                {supplier}
+                              </td>
+                              <td className="px-4 py-3">
+                                {formatNumber(quantity)}
+                              </td>
+                              <td className="px-4 py-3">
+                                RM {formatCurrency(subtotal)}
+                              </td>
+                              <td className="px-4 py-3">
+                                RM {formatCurrency(total)}
+                              </td>
+                              <td className="px-4 py-3">
+                                RM {formatCurrency(cost)}
+                              </td>
+                              <td className="px-4 py-3 font-medium text-green-600">
+                                RM {formatCurrency(profit)}
+                              </td>
+                              <td className="px-4 py-3 text-gray-500">
+                                {margin.toFixed(1)}%
+                              </td>
+                            </tr>
+                          ),
+                        )}
+                      <tr className="bg-gray-100 font-semibold">
+                        <td className="px-4 py-3">Outright Subtotal</td>
+                        <td className="px-4 py-3">
+                          {formatNumber(
+                            suppliers
+                              .filter((s) => s.supplyType === "Outright")
+                              .reduce((sum, s) => sum + s.quantity, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          RM{" "}
+                          {formatCurrency(
+                            suppliers
+                              .filter((s) => s.supplyType === "Outright")
+                              .reduce((sum, s) => sum + s.subtotal, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          RM{" "}
+                          {formatCurrency(
+                            suppliers
+                              .filter((s) => s.supplyType === "Outright")
+                              .reduce((sum, s) => sum + s.total, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          RM{" "}
+                          {formatCurrency(
+                            suppliers
+                              .filter((s) => s.supplyType === "Outright")
+                              .reduce((sum, s) => sum + s.cost, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          RM{" "}
+                          {formatCurrency(
+                            suppliers
+                              .filter((s) => s.supplyType === "Outright")
+                              .reduce((sum, s) => sum + s.profit, 0),
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {suppliers
+                            .filter((s) => s.supplyType === "Outright")
+                            .reduce((sum, s) => sum + s.total, 0) > 0
+                            ? (
+                                (suppliers
+                                  .filter((s) => s.supplyType === "Outright")
+                                  .reduce((sum, s) => sum + s.profit, 0) /
+                                  suppliers
+                                    .filter((s) => s.supplyType === "Outright")
+                                    .reduce((sum, s) => sum + s.total, 0)) *
+                                100
+                              ).toFixed(1)
+                            : "0.0"}
+                          %
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Grand Total */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
+                <h3 className="text-lg font-semibold text-foreground mb-4">
+                  Grand Total (All Suppliers)
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-7">
+                  <div className="bg-white p-4 rounded border border-gray-200">
+                    <div className="text-xs font-medium text-gray-500 mb-1">
+                      Units
+                    </div>
+                    <div className="text-xl font-semibold">
+                      {formatNumber(
+                        suppliers.reduce((sum, s) => sum + s.quantity, 0),
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded border border-gray-200">
+                    <div className="text-xs font-medium text-gray-500 mb-1">
+                      SubTotal RM
+                    </div>
+                    <div className="text-xl font-semibold">
+                      {formatCurrency(
+                        suppliers.reduce((sum, s) => sum + s.subtotal, 0),
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded border border-gray-200">
+                    <div className="text-xs font-medium text-gray-500 mb-1">
+                      Total RM
+                    </div>
+                    <div className="text-xl font-semibold">
+                      {formatCurrency(
+                        suppliers.reduce((sum, s) => sum + s.total, 0),
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded border border-gray-200">
+                    <div className="text-xs font-medium text-gray-500 mb-1">
+                      Cost RM
+                    </div>
+                    <div className="text-xl font-semibold">
+                      {formatCurrency(
+                        suppliers.reduce((sum, s) => sum + s.cost, 0),
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded border border-gray-200">
+                    <div className="text-xs font-medium text-gray-500 mb-1">
+                      Profit RM
+                    </div>
+                    <div className="text-xl font-semibold text-green-600">
+                      {formatCurrency(
+                        suppliers.reduce((sum, s) => sum + s.profit, 0),
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded border border-gray-200">
+                    <div className="text-xs font-medium text-gray-500 mb-1">
+                      Margin %
+                    </div>
+                    <div className="text-xl font-semibold">
+                      {suppliers.reduce((sum, s) => sum + s.total, 0) > 0
+                        ? (
+                            (suppliers.reduce((sum, s) => sum + s.profit, 0) /
+                              suppliers.reduce((sum, s) => sum + s.total, 0)) *
+                            100
+                          ).toFixed(1)
+                        : "0.0"}
+                      %
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded border border-gray-200">
+                    <div className="text-xs font-medium text-gray-500 mb-1">
+                      Discount RM
+                    </div>
+                    <div className="text-xl font-semibold text-orange-600">
+                      {formatCurrency(
+                        suppliers.reduce(
+                          (sum, s) => sum + (s.subtotal - s.total),
+                          0,
+                        ),
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </>
