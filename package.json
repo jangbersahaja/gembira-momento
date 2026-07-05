@@ -4,15 +4,20 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/generateTransactionsTS.js && node scripts/generateProductsTS.js && node scripts/generateTimesheetsTS.js && node scripts/generateShiftsTS.js && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "generate:transactions": "node scripts/generateTransactionsTS.js",
+    "generate:products": "node scripts/generateProductsTS.js",
+    "generate:timesheets": "node scripts/generateTimesheetsTS.js",
+    "generate:shifts": "node scripts/generateShiftsTS.js"
   },
   "dependencies": {
     "html-to-image": "^1.11.13",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "next": "16.2.9",
+    "papaparse": "^5.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.9.1"
@@ -20,6 +25,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/papaparse": "^5.5.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

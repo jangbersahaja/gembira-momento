@@ -10,8 +10,10 @@ interface ProductData {
   name: string;
   cost: number;
   price: number;
+  margin: number;
   unitsSold: number;
   revenue: number;
+  stockBalance: number;
   missingSkuWarning?: boolean; // Flag if product has no SKU
 }
 
@@ -22,6 +24,8 @@ interface SupplierGroup {
   totalRevenue: number;
   totalCost: number;
   totalUnits: number;
+  totalStockBalance: number;
+  totalStockValue: number;
   products: ProductData[];
 }
 
@@ -125,8 +129,10 @@ export default function ProductsClient() {
         name,
         cost,
         price,
+        margin: price - cost,
         unitsSold: saleData.units,
         revenue: saleData.revenue,
+        stockBalance: Number(product["Gembira Momento_Quantity"]) || 0,
         missingSkuWarning: !sku, // Flag products without SKU
       };
 
@@ -140,6 +146,8 @@ export default function ProductsClient() {
           totalRevenue: 0,
           totalCost: 0,
           totalUnits: 0,
+          totalStockBalance: 0,
+          totalStockValue: 0,
           products: [],
         });
       }
@@ -149,6 +157,8 @@ export default function ProductsClient() {
       group.totalRevenue += saleData.revenue;
       group.totalCost += cost * saleData.units;
       group.totalUnits += saleData.units;
+      group.totalStockBalance += productData.stockBalance;
+      group.totalStockValue += productData.stockBalance * cost;
       group.products.push(productData);
     }
 
@@ -236,10 +246,10 @@ export default function ProductsClient() {
                 {/* Supplier Header - Clickable */}
                 <button
                   onClick={() => toggleSupplier(group.supplier)}
-                  className="w-full bg-linear-to-r from-blue-50 to-blue-100 px-6 py-4 hover:from-blue-100 hover:to-blue-200 transition-colors text-left"
+                  className="w-full bg-linear-to-r from-blue-50 to-blue-100 px-4 sm:px-6 py-4 hover:from-blue-100 hover:to-blue-200 transition-colors text-left"
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4 flex-1">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
                       <span
                         className={`transform transition-transform ${
                           expandedSupplier === group.supplier
@@ -272,7 +282,21 @@ export default function ProductsClient() {
                     </div>
 
                     {/* Summary Stats */}
-                    <div className="flex gap-8 text-right">
+                    <div className="grid grid-cols-2 gap-3 sm:flex sm:gap-8 text-right">
+                      <div>
+                        <p className="text-xs text-gray-600 mb-1">Stock</p>
+                        <p className="font-semibold text-gray-900">
+                          {group.totalStockBalance}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-600 mb-1">
+                          Stock Value
+                        </p>
+                        <p className="font-semibold text-gray-900">
+                          RM {formatCurrency(group.totalStockValue)}
+                        </p>
+                      </div>
                       <div>
                         <p className="text-xs text-gray-600 mb-1">Revenue</p>
                         <p className="font-semibold text-gray-900">
@@ -286,7 +310,7 @@ export default function ProductsClient() {
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-600 mb-1">Margin</p>
+                        <p className="text-xs text-gray-600 mb-1">Profit</p>
                         <p
                           className={`font-semibold ${
                             group.totalRevenue > 0
@@ -305,13 +329,16 @@ export default function ProductsClient() {
                 {/* Products List - Expandable */}
                 {expandedSupplier === group.supplier && (
                   <div className="bg-white border-t border-gray-200">
-                    <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
+                    <div className="divide-y divide-gray-200 max-h-96 overflow-auto">
                       {/* Header Row */}
-                      <div className="px-6 py-3 bg-gray-50 grid grid-cols-12 gap-4 sticky top-0 text-xs font-semibold text-gray-700">
+                      <div className="min-w-[1100px] px-4 sm:px-6 py-3 bg-gray-50 grid grid-cols-15 gap-3 sticky top-0 text-xs font-semibold text-gray-700">
                         <div className="col-span-1">SKU</div>
-                        <div className="col-span-4">Product Name</div>
+                        <div className="col-span-3">Product Name</div>
+                        <div className="col-span-1 text-right">Stock</div>
+                        <div className="col-span-1 text-right">Stock Value</div>
                         <div className="col-span-1 text-right">Cost</div>
                         <div className="col-span-1 text-right">Price</div>
+                        <div className="col-span-1 text-right">Margin</div>
                         <div className="col-span-1 text-right">Units Sold</div>
                         <div className="col-span-2 text-right">Revenue</div>
                         <div className="col-span-2 text-right">Profit</div>
@@ -322,7 +349,7 @@ export default function ProductsClient() {
                         <Link
                           key={product.sku + product.name}
                           href={`/products/${encodeURIComponent(product.sku)}`}
-                          className={`px-6 py-3 grid grid-cols-12 gap-4 text-sm transition-colors ${
+                          className={`min-w-[1100px] px-4 sm:px-6 py-3 grid grid-cols-15 gap-3 text-sm transition-colors ${
                             product.missingSkuWarning
                               ? "bg-orange-50 hover:bg-orange-100 border-l-2 border-orange-400"
                               : product.unitsSold === 0
@@ -339,7 +366,7 @@ export default function ProductsClient() {
                               <span className="text-orange-600 font-semibold"></span>
                             )}
                           </div>
-                          <div className="col-span-4 text-gray-900 truncate">
+                          <div className="col-span-3 text-gray-900 truncate">
                             <span className="hover:text-blue-600">
                               {product.name}
                             </span>
@@ -355,11 +382,29 @@ export default function ProductsClient() {
                                 </span>
                               )}
                           </div>
+                          <div className="col-span-1 text-right font-semibold text-gray-900">
+                            {product.stockBalance || "—"}
+                          </div>
+                          <div className="col-span-1 text-right font-semibold text-gray-700">
+                            RM{" "}
+                            {formatCurrency(
+                              product.stockBalance * product.cost,
+                            )}
+                          </div>
                           <div className="col-span-1 text-right text-gray-700">
                             RM {formatCurrency(product.cost)}
                           </div>
                           <div className="col-span-1 text-right text-gray-700">
                             RM {formatCurrency(product.price)}
+                          </div>
+                          <div
+                            className={`col-span-1 text-right font-semibold ${
+                              product.margin >= 0
+                                ? "text-green-700"
+                                : "text-red-700"
+                            }`}
+                          >
+                            RM {formatCurrency(product.margin)}
                           </div>
                           <div className="col-span-1 text-right font-semibold">
                             {product.unitsSold}

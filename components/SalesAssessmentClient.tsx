@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import products from "../data/products";
-import timesheets from "../data/timesheets";
+import shifts from "../data/shifts";
 import transactions from "../data/transactions";
 import {
   DayOfWeekTrendCharts,
@@ -317,10 +317,10 @@ const groupByDay = (from: Date | null, to: Date | null) => {
     }
   }
 
-  // Second pass: add opening and closing times from timesheets for all dates (respecting date range)
-  for (const sheet of timesheets) {
-    const timeInStr = getString(sheet["Time In"]);
-    const timeOutStr = getString(sheet["Time Out"]);
+  // Second pass: add opening and closing times from shifts for all dates (respecting date range)
+  for (const shift of shifts) {
+    const timeInStr = getString(shift["Open Time"]);
+    const timeOutStr = getString(shift["Close Time"]);
 
     if (timeInStr) {
       const timeInDate = parseTime(timeInStr);
