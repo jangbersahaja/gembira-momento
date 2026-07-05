@@ -1,11 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 
 export default function Home() {
-  const [activeLanguage, setActiveLanguage] = useState("en");
-
   const greetings = [
     { text: "Selamat Datang", color: "text-amber-700" },
     { text: "Hello", color: "text-amber-700" },
@@ -21,42 +18,42 @@ export default function Home() {
       number: "01",
       title: "For the Art Collectors",
       description:
-        "Custom-designed postcards, notebooks, and intricate 3D skyline memorabilia illustrating the soul of KL's landscape.",
+        "Curated enamel pins, postcards, notebooks, and magnets by local creators like Mariari, inspired by Malaysian food, places, and daily life.",
     },
     {
       icon: "👜",
       number: "02",
       title: "For the Lifestyle Explorers",
       description:
-        "Premium, locally inspired accessories and contemporary textiles in partnership with independent Malaysian creators.",
+        "Travel-friendly lifestyle picks including TaleSocks, handcrafted bags, leather card holders, and practical everyday accessories.",
     },
     {
       icon: "🏮",
       number: "03",
       title: "For the Tradition Seekers",
       description:
-        "Authentic Malaysian heritage pieces, decorative items, and cultural keepsakes that tell the story of our nation.",
+        "Malaysian heritage pieces from hand-painted Tiffin Jeiwa carriers to traditional décor and keepsakes rooted in local craftsmanship.",
     },
   ];
 
   const bestsellers = [
     {
-      name: "Aesthetic KL KLCC Acrylic Magnets",
+      name: "Tiffin Jeiwa Collection",
       description:
-        "Premium custom illustrations you cannot buy at traditional flea markets.",
-      tag: "Bestseller Bundle - 5 for RM 50",
+        "Hand-painted tiffin carriers, mugs, and gift pieces that celebrate Malaysian heritage with artisan detail.",
+      tag: "Heritage Favorite",
     },
     {
-      name: "Hand-Drawn Landmark Postcards",
+      name: "TaleSocks",
       description:
-        "Thick, texture-rich matte prints perfect for mailing across oceans.",
+        "Breathable, premium socks with Malaysian-inspired designs made for comfort in a tropical climate.",
       tag: "Traveler's Favorite",
     },
     {
-      name: "Premium 3D KLCC Skyline Memorabilia",
+      name: "Mariari Gifts & Stationery",
       description:
-        "Intricate, collectible pieces celebrating Kuala Lumpur's iconic architecture.",
-      tag: "Collector's Edition",
+        "Enamel pins, fragrance, notebooks, postcards, and magnets that turn everyday Malaysian icons into meaningful keepsakes.",
+      tag: "Curated Pick",
     },
   ];
 

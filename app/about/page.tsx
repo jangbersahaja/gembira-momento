@@ -35,11 +35,11 @@ export default function AboutPage() {
             </p>
             <p>
               Gembira Momento was born from a simple but passionate idea: a
-              souvenir shouldn't just be an object you throw into a suitcase. It
-              should be a beautifully preserved capsule of your happiest travel
-              memories. We wanted to create a place where your journey in
-              Malaysia doesn't end when you leave—it lives on through the
-              objects you take home.
+              souvenir shouldn&apos;t just be an object you throw into a
+              suitcase. It should be a beautifully preserved capsule of your
+              happiest travel memories. We wanted to create a place where your
+              journey in Malaysia doesn&apos;t end when you leave—it lives on
+              through the objects you take home.
             </p>
           </div>
         </div>
@@ -64,9 +64,9 @@ export default function AboutPage() {
               chaotic, plastic-cluttered stalls of traditional souvenir markets.
               We believe that Malaysian culture, art, and craftsmanship are
               rich, elegant, and worthy of a premium boutique experience.
-              Walking through our aisles isn't just shopping; it's an immersive,
-              multilingual journey celebrating the warmth of Malaysian
-              hospitality.
+              Walking through our aisles isn&apos;t just shopping; it&apos;s an
+              immersive, multilingual journey celebrating the warmth of
+              Malaysian hospitality.
             </p>
             <p className="text-sm text-gray-600 mt-4">
               <span className="font-semibold">📍 Location:</span> Rubber Park @
@@ -87,12 +87,13 @@ export default function AboutPage() {
           </h2>
           <div className="space-y-6 text-gray-700 leading-relaxed text-lg">
             <p className="font-semibold italic text-amber-700">
-              We don't mass-produce. We curate.
+              We don&apos;t mass-produce. We curate.
             </p>
             <p>
               At Gembira Momento, every single item on our shelves tells a piece
-              of the Malaysian story. We bridge the gap between brilliant local
-              creators and global travelers.
+              of the Malaysian story. From Mariari and TaleSocks to Tiffin Jeiwa
+              and local leather and bag makers, we bridge the gap between
+              brilliant local creators and global travelers.
             </p>
 
             {/* Three Pillars */}
@@ -102,10 +103,10 @@ export default function AboutPage() {
                   🎨 For the Art Collectors
                 </h3>
                 <p>
-                  Our custom-designed postcards, notebooks, and intricate 3D
-                  skyline memorabilia are carefully illustrated to showcase the
-                  heart and soul of KL's landscape, serving as a lasting
-                  testament to the sights you fell in love with.
+                  Discover Mariari&apos;s enamel pins, notebooks, postcards,
+                  bookmarks, and magnets that transform Malaysia&apos;s food,
+                  streets, and everyday symbols into collectible, functional
+                  keepsakes.
                 </p>
               </div>
 
@@ -114,9 +115,9 @@ export default function AboutPage() {
                   👜 For the Lifestyle Explorers
                 </h3>
                 <p>
-                  We proudly partner with independent Malaysian brands to offer
-                  premium, locally inspired accessories and textiles that bring
-                  contemporary Malaysian style to the global stage.
+                  Explore wearable and practical favorites like TaleSocks,
+                  handcrafted bags, genuine leather card holders and keychains,
+                  plus daily-use travel accessories made for modern journeys.
                 </p>
               </div>
 
@@ -125,10 +126,10 @@ export default function AboutPage() {
                   🏮 For the Tradition Seekers
                 </h3>
                 <p>
-                  We celebrate the heritage and cultural richness of Malaysia
-                  through carefully curated pieces that honor our traditions.
-                  From artisanal crafts to cultural symbols, each item connects
-                  you to the authentic soul of our nation.
+                  We celebrate Malaysia&apos;s heritage through hand-painted
+                  Tiffin Jeiwa carriers, traditional-inspired décor, and
+                  culturally rooted keepsakes that carry the warmth of local
+                  craftsmanship.
                 </p>
               </div>
             </div>
@@ -145,7 +146,7 @@ export default function AboutPage() {
           <div className="space-y-4 text-gray-700 leading-relaxed text-lg">
             <p>
               Our passion for authentic local curation extends far beyond the
-              traveler's suitcase. Today, Gembira Momento acts as a premium
+              traveler&apos;s suitcase. Today, Gembira Momento acts as a premium
               gifting partner for businesses and organizations. Through our
               corporate gifting wing, we bundle our signature local treats,
               artisanal goods, and custom artwork into elegant, minimalist
@@ -177,7 +178,7 @@ export default function AboutPage() {
             native language with an open smile.
           </p>
           <p className="text-2xl font-semibold text-amber-700 italic">
-            Don't just buy a keepsake. Take a happy moment home.
+            Don&apos;t just buy a keepsake. Take a happy moment home.
           </p>
         </div>
       </div>

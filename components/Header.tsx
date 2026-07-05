@@ -23,6 +23,7 @@ export default function Header() {
   const publicLinks = [
     { href: "#curation", label: "The Curation" },
     { href: "/about", label: "Our Story" },
+    { href: "/partners", label: "Partners" },
     { href: "/contact", label: "Corporate Gifting" },
     { href: "#", label: "Find Us" },
   ];
@@ -42,7 +43,10 @@ export default function Header() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-amber-700 font-semibold">⏰</span>
-                <span>Open Daily: 11:00 AM – 11:00 PM</span>
+                <span>
+                  Open Daily: Weekdays - 1:00 PM – 11:00 PM • Weekends - 11:00
+                  AM – 11:00 PM
+                </span>
               </div>
             </div>
             <div className="flex items-center gap-4">
