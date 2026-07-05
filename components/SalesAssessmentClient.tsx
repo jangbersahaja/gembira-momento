@@ -207,7 +207,10 @@ const getPresetRange = (preset: Preset): { from: Date; to: Date } | null => {
 
 const groupByHour = (from: Date | null, to: Date | null) => {
   const hourlyMap = new Map<number, { total: number; transactions: number }>();
-  const receiptMap = new Map<string, { hour: number; total: number; date: string }>();
+  const receiptMap = new Map<
+    string,
+    { hour: number; total: number; date: string }
+  >();
   const dateSet = new Set<string>(); // Track unique dates
 
   // First pass: collect receipt totals from payment methods
