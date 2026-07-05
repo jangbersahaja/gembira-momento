@@ -185,18 +185,21 @@ type ViewTab =
 const getPresetRange = (preset: Preset): { from: Date; to: Date } | null => {
   const now = new Date();
   if (preset === "all") return null;
+
   if (preset === "this-month") {
-    return {
-      from: new Date(now.getFullYear(), now.getMonth(), 1),
-      to: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59),
-    };
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    to.setMilliseconds(to.getMilliseconds() - 1); // Last millisecond of current month
+    return { from, to };
   }
+
   if (preset === "last-month") {
-    return {
-      from: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-      to: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59),
-    };
+    const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const to = new Date(now.getFullYear(), now.getMonth(), 1);
+    to.setMilliseconds(to.getMilliseconds() - 1); // Last millisecond of last month
+    return { from, to };
   }
+
   return null; // custom — caller manages dates
 };
 
@@ -204,7 +207,8 @@ const getPresetRange = (preset: Preset): { from: Date; to: Date } | null => {
 
 const groupByHour = (from: Date | null, to: Date | null) => {
   const hourlyMap = new Map<number, { total: number; transactions: number }>();
-  const receiptMap = new Map<string, { hour: number; total: number }>();
+  const receiptMap = new Map<string, { hour: number; total: number; date: string }>();
+  const dateSet = new Set<string>(); // Track unique dates
 
   // First pass: collect receipt totals from payment methods
   for (const row of transactions) {
@@ -221,9 +225,11 @@ const groupByHour = (from: Date | null, to: Date | null) => {
     const creditCard = getAmount(row["Credit Card"]);
     const debitCard = getAmount(row["Debit Card"]);
     const total = cash + qr + creditCard + debitCard;
+    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
     if (total > 0 && !receiptMap.has(receipt)) {
-      receiptMap.set(receipt, { hour, total });
+      receiptMap.set(receipt, { hour, total, date: dateKey });
+      dateSet.add(dateKey); // Track unique dates
     }
   }
 
@@ -246,7 +252,7 @@ const groupByHour = (from: Date | null, to: Date | null) => {
 
   return {
     hourly,
-    dateCount: receiptMap.size,
+    dateCount: dateSet.size, // Count unique dates instead of receipts
     transactionCount: hourly.reduce((s, r) => s + r.transactions, 0),
     totalSales: hourly.reduce((s, r) => s + r.total, 0),
   };
@@ -308,7 +314,7 @@ const groupByDay = (from: Date | null, to: Date | null) => {
     }
   }
 
-  // Second pass: add opening and closing times from timesheets for all dates
+  // Second pass: add opening and closing times from timesheets for all dates (respecting date range)
   for (const sheet of timesheets) {
     const timeInStr = getString(sheet["Time In"]);
     const timeOutStr = getString(sheet["Time Out"]);
@@ -316,6 +322,10 @@ const groupByDay = (from: Date | null, to: Date | null) => {
     if (timeInStr) {
       const timeInDate = parseTime(timeInStr);
       if (timeInDate) {
+        // Check if timeInDate is within the specified range
+        if (from && timeInDate < from) continue;
+        if (to && timeInDate > to) continue;
+
         const dateKey = `${timeInDate.getFullYear()}-${String(timeInDate.getMonth() + 1).padStart(2, "0")}-${String(timeInDate.getDate()).padStart(2, "0")}`;
         const hour = timeInDate.getHours().toString().padStart(2, "0");
         const minute = timeInDate.getMinutes().toString().padStart(2, "0");
@@ -354,6 +364,10 @@ const groupByDay = (from: Date | null, to: Date | null) => {
     if (timeOutStr) {
       const timeOutDate = parseTime(timeOutStr);
       if (timeOutDate) {
+        // Check if timeOutDate is within the specified range
+        if (from && timeOutDate < from) continue;
+        if (to && timeOutDate > to) continue;
+
         const dateKey = `${timeOutDate.getFullYear()}-${String(timeOutDate.getMonth() + 1).padStart(2, "0")}-${String(timeOutDate.getDate()).padStart(2, "0")}`;
         const hour = timeOutDate.getHours().toString().padStart(2, "0");
         const minute = timeOutDate.getMinutes().toString().padStart(2, "0");
