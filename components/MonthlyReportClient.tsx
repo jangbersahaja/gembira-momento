@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  useProducts,
+  useTimesheets,
+  useTransactions,
+} from "@/lib/useStorehubApi";
 import { toCanvas } from "html-to-image";
 import jsPDF from "jspdf";
 import { useMemo, useRef, useState } from "react";
@@ -15,68 +20,19 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import expenses from "../data/expenses";
-import products from "../data/products";
-import timesheets from "../data/timesheets";
-import transactions from "../data/transactions";
 
 // ─── Helper Functions ────────────────────────────────────────────────────────
 
-const costBySkuMap = new Map<string, number>();
-const costByNameMap = new Map<string, number>();
-
-for (const product of products) {
-  const cost =
-    typeof product.Cost === "number" ? product.Cost : Number(product.Cost) || 0;
-  const sku = String(product.SKU);
-  const name = String(product["Product Name"]);
-
-  if (sku && sku !== "undefined") {
-    costBySkuMap.set(sku, cost);
-  }
-
-  if (name && name !== "undefined") {
-    costByNameMap.set(name, cost);
-  }
-}
-
-const getCost = (sku: string, productName: string): number => {
-  if (sku && sku !== "undefined") {
-    const skuCost = costBySkuMap.get(sku);
-    if (skuCost !== undefined) return skuCost;
-  }
-
-  if (productName && productName !== "undefined") {
-    const nameCost = costByNameMap.get(productName);
-    if (nameCost !== undefined) return nameCost;
-  }
-
-  return 0;
-};
-
 const parseTime = (timeString: string): Date | null => {
-  // Format: "04/15/2026 Wednesday 17:42" or "04/15/2026 17:42"
-  const match = timeString.match(
-    /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(?:\w+\s+)?(\d{1,2}):(\d{2})$/,
-  );
-  if (!match) return null;
-  const [, month, day, year, hour, minute] = match;
-  return new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-  );
+  // Format: "2026-04-15T17:42:00Z" (ISO format from API)
+  try {
+    return new Date(timeString);
+  } catch {
+    return null;
+  }
 };
 
 const getString = (value: unknown) => (typeof value === "string" ? value : "");
-
-const isTotalRow = (row: Record<string, unknown>) =>
-  getString(row["Transaction Type"]) === "Sale" &&
-  getString(row.Item) === "" &&
-  getString(row.Is_Cancelled) === "False" &&
-  row.SubTotal !== "";
 
 const formatCurrency = (value: number) => {
   return value.toLocaleString("en-MY", {
@@ -121,12 +77,19 @@ interface ReportData {
   rentalCost: number;
   gtoCost: number;
   utilitiesCost: number;
-  otherExpenses: number;
+  marketingCost: number;
+  claimCost: number;
   totalExpenses: number;
   netProfit: number;
 }
 
-function getMonthData(year: number, month: number): ReportData {
+function getMonthData(
+  year: number,
+  month: number,
+  transactions: any[],
+  products: any[] = [],
+  timesheets: any[] = [],
+): ReportData {
   const monthNames = [
     "January",
     "February",
@@ -157,301 +120,221 @@ function getMonthData(year: number, month: number): ReportData {
     rentalCost: 1500,
     gtoCost: 0,
     utilitiesCost: 0,
-    otherExpenses: 0,
+    marketingCost: 0,
+    claimCost: 0,
     totalExpenses: 0,
     netProfit: 0,
   };
 
-  // Aggregate transaction data by day
+  // Build product lookup map with SKU and ID
+  const productMap = new Map<
+    string,
+    { sku: string; name: string; cost: number; id: string }
+  >();
+  for (const product of products) {
+    productMap.set(`id:${product.id}`, {
+      sku: product.sku,
+      name: product.name,
+      cost: product.cost || 0,
+      id: product.id,
+    });
+    productMap.set(`sku:${product.sku}`, {
+      sku: product.sku,
+      name: product.name,
+      cost: product.cost || 0,
+      id: product.id,
+    });
+  }
+
+  // Calculate labor cost from timesheets
+  // Assuming default hourly rate of RM15 (adjust as needed)
+  const DEFAULT_HOURLY_RATE = 15;
+  const laborMap = new Map<string, { hours: number; cost: number }>();
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0);
+
+  for (const timesheet of timesheets) {
+    const clockIn = parseTime(timesheet.clockInTime);
+    const clockOut = parseTime(timesheet.clockOutTime);
+
+    if (!clockIn || !clockOut) continue;
+
+    // Only count timesheets in the selected month
+    if (clockIn.getMonth() !== month || clockIn.getFullYear() !== year) {
+      continue;
+    }
+
+    const hours = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
+    const laborCost = hours * DEFAULT_HOURLY_RATE;
+
+    const employeeId = timesheet.employeeId || "Unknown";
+    const current = laborMap.get(employeeId) || { hours: 0, cost: 0 };
+    current.hours += hours;
+    current.cost += laborCost;
+    laborMap.set(employeeId, current);
+  }
+
+  reportData.laborBreakdown = Object.fromEntries(laborMap);
+  reportData.laborCost = Array.from(laborMap.values()).reduce(
+    (sum, d) => sum + d.cost,
+    0,
+  );
+
+  // Aggregate transaction data
   const dailyDataMap = new Map<string, { revenue: number; cost: number }>();
   const hourlyDataMap = new Map<
     number,
     { revenue: number; transactions: number }
   >();
-  const productMap = new Map<
+  const topProductsMap = new Map<
     string,
-    { qty: number; revenue: number; cost: number }
+    { name: string; qty: number; revenue: number; cost: number }
   >();
 
-  // First pass: Calculate daily and hourly revenue from receipt totals (payment methods)
-  const receiptRevenueMap = new Map<string, number>();
+  // Process transactions
   for (const tx of transactions) {
-    const timeStr = getString(tx.Time);
-    const date = parseTime(timeStr);
+    const timestamp = tx.timestamp ? new Date(tx.timestamp) : null;
 
-    if (!date || date.getMonth() !== month || date.getFullYear() !== year)
+    if (
+      !timestamp ||
+      timestamp.getMonth() !== month ||
+      timestamp.getFullYear() !== year
+    ) {
       continue;
-
-    if (!isTotalRow(tx)) continue;
-
-    const receipt = getString(tx["Receipt Number"]);
-    const cash = typeof tx.Cash === "number" ? tx.Cash : Number(tx.Cash) || 0;
-    const creditCard =
-      typeof tx["Credit Card"] === "number"
-        ? tx["Credit Card"]
-        : Number(tx["Credit Card"]) || 0;
-    const debitCard =
-      typeof tx["Debit Card"] === "number"
-        ? tx["Debit Card"]
-        : Number(tx["Debit Card"]) || 0;
-    const qr = typeof tx.QR === "number" ? tx.QR : Number(tx.QR) || 0;
-
-    const receiptRevenue = cash + creditCard + debitCard + qr;
-    if (receiptRevenue > 0) {
-      receiptRevenueMap.set(receipt, receiptRevenue);
-
-      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      const hour = date.getHours();
-
-      // Daily revenue
-      const currentDaily = dailyDataMap.get(dateKey) || { revenue: 0, cost: 0 };
-      currentDaily.revenue += receiptRevenue;
-      dailyDataMap.set(dateKey, currentDaily);
-
-      // Hourly revenue
-      if (!hourlyDataMap.has(hour)) {
-        hourlyDataMap.set(hour, { revenue: 0, transactions: 0 });
-      }
-      const hourData = hourlyDataMap.get(hour)!;
-      hourData.revenue += receiptRevenue;
-      hourData.transactions += 1;
     }
-  }
 
-  // Second pass: Process item rows for cost and product data
-  for (const tx of transactions) {
-    const timeStr = getString(tx.Time);
-    const date = parseTime(timeStr);
+    // Only count completed transactions
+    if (tx.status !== "completed") continue;
 
-    if (!date || date.getMonth() !== month || date.getFullYear() !== year)
-      continue;
+    // Add to daily and hourly aggregates
+    const dateKey = `${timestamp.getFullYear()}-${String(timestamp.getMonth() + 1).padStart(2, "0")}-${String(timestamp.getDate()).padStart(2, "0")}`;
+    const hour = timestamp.getHours();
 
-    // Process individual items (not totals)
-    const txType = getString(tx["Transaction Type"]);
-    const isCancelled = getString(tx.Is_Cancelled);
-
-    if (txType !== "Sale" || isCancelled === "True") continue;
-
-    // Skip empty item rows (transaction total rows)
-    const itemName = getString(tx.Item);
-    if (!itemName) continue;
-
-    const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    const quantity =
-      typeof tx.Quantity === "number" ? tx.Quantity : Number(tx.Quantity) || 0;
-
-    // Cost calculation
-    const sku = getString(tx.SKU);
-    const itemCost = getCost(sku, itemName);
-    const totalCost = itemCost * quantity;
-
-    // Daily data - accumulate costs
     const currentDaily = dailyDataMap.get(dateKey) || { revenue: 0, cost: 0 };
-    currentDaily.cost += totalCost;
+    currentDaily.revenue += tx.total;
+
+    for (const item of tx.items || []) {
+      // Get product cost from product map, fallback to 0 if not found
+      let itemCost = 0;
+      if (item.productId) {
+        const productInfo = productMap.get(`id:${item.productId}`);
+        itemCost = (productInfo?.cost || 0) * (item.quantity || 0);
+      } else if (item.sku) {
+        const productInfo = productMap.get(`sku:${item.sku}`);
+        itemCost = (productInfo?.cost || 0) * (item.quantity || 0);
+      }
+      currentDaily.cost += itemCost;
+    }
+
     dailyDataMap.set(dateKey, currentDaily);
 
-    // Product tracking - use item SubTotal for product-level reporting
-    const subtotal =
-      typeof tx.SubTotal === "number" ? tx.SubTotal : Number(tx.SubTotal) || 0;
-    const discountValue =
-      typeof tx.Discount === "number" ? tx.Discount : Number(tx.Discount) || 0;
-    const discount = Math.abs(discountValue);
-    const netSales = subtotal - discount;
+    // Hourly data
+    if (!hourlyDataMap.has(hour)) {
+      hourlyDataMap.set(hour, { revenue: 0, transactions: 0 });
+    }
+    const hourData = hourlyDataMap.get(hour)!;
+    hourData.revenue += tx.total;
+    hourData.transactions += 1;
 
-    if (itemName) {
-      const current = productMap.get(itemName) || {
+    // Payment breakdown
+    const method = tx.paymentMethod || "other";
+    reportData.paymentBreakdown[method] =
+      (reportData.paymentBreakdown[method] || 0) + tx.total;
+
+    // Process items for top products
+    for (const item of tx.items || []) {
+      let productId = item.productId || item.sku || item.productName;
+      let productName = item.productName;
+      let productCost = 0;
+
+      // Try to get product details from map
+      if (item.productId) {
+        const productInfo = productMap.get(`id:${item.productId}`);
+        if (productInfo) {
+          productId = productInfo.id;
+          productName = productInfo.name;
+          productCost = productInfo.cost;
+        }
+      } else if (item.sku) {
+        const productInfo = productMap.get(`sku:${item.sku}`);
+        if (productInfo) {
+          productId = productInfo.id;
+          productName = productInfo.name;
+          productCost = productInfo.cost;
+        }
+      }
+
+      const itemCost = productCost * (item.quantity || 0);
+      const current = topProductsMap.get(productId) || {
+        name: productName,
         qty: 0,
         revenue: 0,
         cost: 0,
       };
-      current.qty += quantity;
-      current.revenue += netSales;
-      current.cost += totalCost;
-      productMap.set(itemName, current);
+      current.qty += item.quantity || 0;
+      current.revenue += item.totalPrice || 0;
+      current.cost += itemCost;
+      topProductsMap.set(productId, current);
     }
   }
 
-  // Recalculate payment breakdown correctly and calculate revenue from payments
-  const paymentBreakdownCorrect = new Map<string, number>();
-  for (const tx of transactions) {
-    const timeStr = getString(tx.Time);
-    const date = parseTime(timeStr);
-
-    if (!date || date.getMonth() !== month || date.getFullYear() !== year)
-      continue;
-
-    if (!isTotalRow(tx)) continue;
-
-    const cash = typeof tx.Cash === "number" ? tx.Cash : Number(tx.Cash) || 0;
-    const creditCard =
-      typeof tx["Credit Card"] === "number"
-        ? tx["Credit Card"]
-        : Number(tx["Credit Card"]) || 0;
-    const debitCard =
-      typeof tx["Debit Card"] === "number"
-        ? tx["Debit Card"]
-        : Number(tx["Debit Card"]) || 0;
-    const qr = typeof tx.QR === "number" ? tx.QR : Number(tx.QR) || 0;
-
-    if (cash > 0) {
-      paymentBreakdownCorrect.set(
-        "Cash",
-        (paymentBreakdownCorrect.get("Cash") || 0) + cash,
-      );
-    }
-    if (creditCard > 0) {
-      paymentBreakdownCorrect.set(
-        "Credit Card",
-        (paymentBreakdownCorrect.get("Credit Card") || 0) + creditCard,
-      );
-    }
-    if (debitCard > 0) {
-      paymentBreakdownCorrect.set(
-        "Debit Card",
-        (paymentBreakdownCorrect.get("Debit Card") || 0) + debitCard,
-      );
-    }
-    if (qr > 0) {
-      paymentBreakdownCorrect.set(
-        "QR Pay",
-        (paymentBreakdownCorrect.get("QR Pay") || 0) + qr,
-      );
-    }
-  }
-
-  // Convert daily data map to sorted array
-  const dailyArray: DailyData[] = [];
-  for (const [dateKey, data] of dailyDataMap) {
-    const profit = data.revenue - data.cost;
-    dailyArray.push({
-      date: dateKey,
+  // Build daily data array
+  const dailyData: DailyData[] = [];
+  for (const [dateStr, data] of dailyDataMap) {
+    dailyData.push({
+      date: dateStr,
       revenue: data.revenue,
       cost: data.cost,
-      profit,
+      profit: data.revenue - data.cost,
     });
-    reportData.totalRevenue += data.revenue;
-    reportData.totalCost += data.cost;
   }
-  dailyArray.sort((a, b) => a.date.localeCompare(b.date));
-  reportData.dailyData = dailyArray;
+  dailyData.sort((a, b) => a.date.localeCompare(b.date));
+  reportData.dailyData = dailyData;
+
+  // Build hourly data array
+  const hourlyData: HourlyData[] = [];
+  for (let hour = 0; hour < 24; hour++) {
+    const data = hourlyDataMap.get(hour);
+    hourlyData.push({
+      hour,
+      label: `${String(hour).padStart(2, "0")}:00`,
+      revenue: data?.revenue || 0,
+      transactions: data?.transactions || 0,
+    });
+  }
+  reportData.hourlyData = hourlyData;
+
+  // Calculate totals
+  reportData.totalRevenue = Array.from(dailyDataMap.values()).reduce(
+    (sum, d) => sum + d.revenue,
+    0,
+  );
+  reportData.totalCost = Array.from(dailyDataMap.values()).reduce(
+    (sum, d) => sum + d.cost,
+    0,
+  );
   reportData.totalProfit = reportData.totalRevenue - reportData.totalCost;
 
-  // Convert hourly data map to sorted array
-  const formatRangeLabel = (hour: number): string => {
-    const start = hour.toString().padStart(2, "0");
-    const end = ((hour + 1) % 24).toString().padStart(2, "0");
-    return `${start}:00 - ${end}:00`;
-  };
-
-  const hourlyArray: HourlyData[] = Array.from(hourlyDataMap.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([hour, data]) => ({
-      hour,
-      label: formatRangeLabel(hour),
-      revenue: data.revenue,
-      transactions: data.transactions,
-    }));
-  reportData.hourlyData = hourlyArray;
-
-  // Payment breakdown - use the correct calculated map
-  for (const [paymentType, amount] of paymentBreakdownCorrect) {
-    reportData.paymentBreakdown[paymentType] = amount;
-  }
-
-  // Top products
-  const productArray = Array.from(productMap.entries())
-    .map(([name, data]) => ({
-      name,
-      quantity: data.qty,
-      revenue: data.revenue,
-      cost: data.cost,
-    }))
+  // Top products sorted by revenue
+  const sortedProducts = Array.from(topProductsMap.values())
     .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 10);
-  reportData.topProducts = productArray;
-
-  // Labor cost calculation - group timesheet entries by staff section
-  const laborMap = new Map<
-    string,
-    { name: string; hours: number; shifts: number }
-  >();
-
-  let currentStaff = "Unknown";
-
-  for (const timesheet of timesheets) {
-    const firstName = getString(timesheet["First Name"]);
-    const timeInStr = getString(timesheet["Time In"]);
-    const totalHours =
-      typeof timesheet["Total Hours"] === "number"
-        ? timesheet["Total Hours"]
-        : Number(timesheet["Total Hours"]) || 0;
-
-    // If Time In is empty but First Name exists, it's a header row - update current staff
-    if (!timeInStr && firstName) {
-      currentStaff = firstName;
-      continue; // Skip the header row itself
-    }
-
-    // Skip if no Time In (entry rows we don't want to process)
-    if (!timeInStr) continue;
-
-    // Parse the time to get month/year
-    const timeIn = parseTime(timeInStr);
-    if (!timeIn || timeIn.getMonth() !== month || timeIn.getFullYear() !== year)
-      continue;
-
-    // Aggregate by current staff
-    const key = currentStaff;
-    const current = laborMap.get(key) || {
-      name: currentStaff,
-      hours: 0,
-      shifts: 0,
-    };
-    current.hours += totalHours;
-    current.shifts += 1;
-    laborMap.set(key, current);
-  }
-
-  // Calculate labor costs
-  // Faris is branch manager with fixed RM3200/month
-  // Others: RM8/hour
-  for (const [staffName, labor] of laborMap) {
-    let cost = 0;
-
-    if (staffName.toLowerCase() === "faris") {
-      // Fixed salary for manager
-      cost = 3200;
-    } else {
-      // Hourly rate for others
-      cost = labor.hours * 8;
-    }
-
-    reportData.laborCost += cost;
-    reportData.laborBreakdown[labor.name] = {
-      hours: labor.hours,
-      cost,
-    };
-  }
+    .slice(0, 10)
+    .map((p) => ({
+      name: p.name,
+      quantity: p.qty,
+      revenue: p.revenue,
+      cost: p.cost,
+    }));
+  reportData.topProducts = sortedProducts;
 
   // Calculate GTO (2% of revenue)
   reportData.gtoCost = reportData.totalRevenue * 0.02;
 
-  // Get utilities and other expenses from expenses.ts
-  for (const exp of expenses) {
-    if (exp.Year === String(year) && exp.Month === monthNames[month]) {
-      reportData.utilitiesCost =
-        typeof exp.Electric === "number"
-          ? exp.Electric
-          : Number(exp.Electric) || 0;
-      reportData.otherExpenses =
-        (typeof exp["Other (Claim)"] === "number"
-          ? exp["Other (Claim)"]
-          : Number(exp["Other (Claim)"]) || 0) +
-        (typeof exp["Marketing/Free Gift"] === "number"
-          ? exp["Marketing/Free Gift"]
-          : Number(exp["Marketing/Free Gift"]) || 0);
-    }
-  }
+  // Set utilities, marketing, and claim costs to defaults for now
+  // These would come from additional API endpoints if needed
+  reportData.utilitiesCost = 0;
+  reportData.marketingCost = 0;
+  reportData.claimCost = 0;
 
   // Calculate total expenses and net profit
   reportData.totalExpenses =
@@ -460,8 +343,8 @@ function getMonthData(year: number, month: number): ReportData {
     reportData.rentalCost +
     reportData.gtoCost +
     reportData.utilitiesCost +
-    reportData.otherExpenses;
-
+    reportData.marketingCost +
+    reportData.claimCost;
   reportData.netProfit = reportData.totalRevenue - reportData.totalExpenses;
 
   return reportData;
@@ -475,10 +358,40 @@ export default function MonthlyReportClient() {
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth());
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const reportData = useMemo(
-    () => getMonthData(selectedYear, selectedMonth),
-    [selectedYear, selectedMonth],
-  );
+  // Fetch data from APIs
+  const { data: transactionsData, loading: transactionsLoading } =
+    useTransactions();
+  const { data: productsData, loading: productsLoading } = useProducts({
+    limit: 500,
+  });
+
+  // Fetch timesheets for the selected month
+  const monthStart = new Date(selectedYear, selectedMonth, 1);
+  const monthEnd = new Date(selectedYear, selectedMonth + 1, 0);
+  const fromDate = monthStart.toISOString().split("T")[0];
+  const toDate = monthEnd.toISOString().split("T")[0];
+
+  const { data: timesheetsData, loading: timesheetsLoading } = useTimesheets({
+    from: fromDate,
+    to: toDate,
+  });
+
+  const reportData = useMemo(() => {
+    if (!transactionsData) return null;
+    return getMonthData(
+      selectedYear,
+      selectedMonth,
+      transactionsData,
+      productsData || [],
+      timesheetsData || [],
+    );
+  }, [
+    selectedYear,
+    selectedMonth,
+    transactionsData,
+    productsData,
+    timesheetsData,
+  ]);
 
   const monthNames = [
     "January",
@@ -596,6 +509,28 @@ export default function MonthlyReportClient() {
       alert("Error generating PDF. Please try again.");
     }
   };
+
+  // Show loading state
+  const isLoading = transactionsLoading || productsLoading || timesheetsLoading;
+  if (isLoading || !reportData) {
+    return (
+      <div className="w-full bg-white min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading financial data...</p>
+          {transactionsLoading && (
+            <p className="text-sm text-gray-500">Fetching transactions...</p>
+          )}
+          {productsLoading && (
+            <p className="text-sm text-gray-500">Fetching products...</p>
+          )}
+          {timesheetsLoading && (
+            <p className="text-sm text-gray-500">Fetching timesheets...</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full bg-white min-h-screen">
@@ -878,13 +813,26 @@ export default function MonthlyReportClient() {
               </div>
               <div className="flex justify-between items-center py-2 border-b border-gray-200">
                 <span className="text-sm font-medium text-gray-700">
-                  Utilities & Expenses
+                  Utilities (Electric)
                 </span>
                 <span className="text-sm font-semibold text-gray-900">
-                  RM{" "}
-                  {formatCurrency(
-                    reportData.utilitiesCost + reportData.otherExpenses,
-                  )}
+                  RM {formatCurrency(reportData.utilitiesCost)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                <span className="text-sm font-medium text-gray-700">
+                  Marketing/Free Gift
+                </span>
+                <span className="text-sm font-semibold text-gray-900">
+                  RM {formatCurrency(reportData.marketingCost)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                <span className="text-sm font-medium text-gray-700">
+                  Claims (Payouts)
+                </span>
+                <span className="text-sm font-semibold text-gray-900">
+                  RM {formatCurrency(reportData.claimCost)}
                 </span>
               </div>
               <div className="flex justify-between items-center py-3 bg-amber-50 px-3 rounded-lg font-semibold">

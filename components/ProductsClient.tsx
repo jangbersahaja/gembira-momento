@@ -1,7 +1,10 @@
 "use client";
 
-import products from "@/data/products";
-import transactions from "@/data/transactions";
+import {
+  useInventory,
+  useProducts,
+  useTransactions,
+} from "@/lib/useStorehubApi";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -14,12 +17,14 @@ interface ProductData {
   unitsSold: number;
   revenue: number;
   stockBalance: number;
+  warningStock?: number;
+  idealStock?: number;
   missingSkuWarning?: boolean; // Flag if product has no SKU
 }
 
-interface SupplierGroup {
-  supplier: string;
-  supplyType: string; // "(Consignment)" or "(Outright)" or empty
+interface CategoryGroup {
+  category: string;
+  categoryType: string;
   productCount: number;
   totalRevenue: number;
   totalCost: number;
@@ -31,97 +36,115 @@ interface SupplierGroup {
 
 export default function ProductsClient() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null);
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
-  // Helper function to normalize supplier name and extract supply type
-  const normalizeSupplier = (supplierStr: string) => {
-    if (!supplierStr) return { base: "No Supplier", type: "" };
+  // Get storeId from environment variable (set in .env.local)
+  const storeId = process.env.NEXT_PUBLIC_STOREHUB_STORE_ID || "";
 
-    const consignmentMatch = supplierStr.match(/^(.+?)\s*\(Consignment\)$/i);
-    if (consignmentMatch) {
-      return { base: consignmentMatch[1].trim(), type: "(Consignment)" };
-    }
+  // Fetch data from API hooks
+  const { data: productsData, loading: productsLoading } = useProducts();
+  const { data: transactionsData, loading: transactionsLoading } =
+    useTransactions();
 
-    const outrightMatch = supplierStr.match(/^(.+?)\s*\(Outright\)$/i);
-    if (outrightMatch) {
-      return { base: outrightMatch[1].trim(), type: "(Outright)" };
-    }
-
-    return { base: supplierStr, type: "" };
-  };
+  // Fetch inventory data if storeId is available
+  const { data: inventoryData, loading: inventoryLoading } =
+    useInventory(storeId);
 
   // Aggregate product data with transaction counts
-  const productGroups = useMemo(() => {
+  const categoryGroups = useMemo(() => {
+    if (!productsData || !transactionsData) return [];
+
+    // Debug: log the first product to see structure
+    if (productsData.length > 0) {
+      console.log("First product:", productsData[0]);
+    }
+
+    // Create inventory map from API data (if available)
+    // Maps productId to inventory level details
+    const inventoryMap = new Map<
+      string,
+      {
+        quantityOnHand: number;
+        warningStock?: number;
+        idealStock?: number;
+      }
+    >();
+
+    if (inventoryData && Array.isArray(inventoryData)) {
+      for (const item of inventoryData) {
+        inventoryMap.set(item.productId, {
+          quantityOnHand: item.quantityOnHand,
+          warningStock: item.warningStock,
+          idealStock: item.idealStock,
+        });
+      }
+    }
+
     // First, count units sold per SKU from transactions
     const skuCounts = new Map<string, { units: number; revenue: number }>();
     // Also track by name as fallback for products without SKU
     const nameCounts = new Map<string, { units: number; revenue: number }>();
 
-    for (const transaction of transactions) {
-      // Only count item rows (where Item is not empty and is a Sale, not cancelled)
-      const item =
-        typeof transaction === "object" ? transaction.Item || "" : "";
-      const txType =
-        typeof transaction === "object" ? transaction["Transaction Type"] : "";
-      const isCancelled =
-        typeof transaction === "object" ? transaction.Is_Cancelled : "";
-
-      // Skip non-item rows or cancelled transactions
-      if (!item || txType !== "Sale" || isCancelled === "True") {
+    for (const transaction of transactionsData) {
+      // Only count item rows (where items exist and status is completed)
+      if (!transaction.items || transaction.status !== "completed") {
         continue;
       }
 
-      const sku = typeof transaction === "object" ? transaction.SKU || "" : "";
-      const qty =
-        typeof transaction === "object" && transaction.Quantity
-          ? Number(transaction.Quantity) || 0
-          : 0;
-      const subTotal =
-        typeof transaction === "object" && transaction.SubTotal
-          ? Number(transaction.SubTotal) || 0
-          : 0;
-      const discount =
-        typeof transaction === "object" && transaction.Discount
-          ? Number(transaction.Discount) || 0
-          : 0;
-      const netSales = Math.abs(subTotal) - Math.abs(discount);
+      for (const item of transaction.items) {
+        const sku = item.sku || "";
+        const qty = item.quantity || 0;
+        const itemTotal = item.totalPrice || 0;
 
-      if (qty > 0) {
-        // Match by SKU first, fallback to name if no SKU
-        if (sku) {
-          const current = skuCounts.get(sku) || { units: 0, revenue: 0 };
-          current.units += qty;
-          current.revenue += netSales;
-          skuCounts.set(sku, current);
-        } else if (item) {
-          // Only use name if there's no SKU to avoid double-counting
-          const current = nameCounts.get(item) || { units: 0, revenue: 0 };
-          current.units += qty;
-          current.revenue += netSales;
-          nameCounts.set(item, current);
+        if (qty > 0) {
+          // Match by SKU first, fallback to name if no SKU
+          if (sku) {
+            const current = skuCounts.get(sku) || { units: 0, revenue: 0 };
+            current.units += qty;
+            current.revenue += itemTotal;
+            skuCounts.set(sku, current);
+          } else if (item.productName) {
+            // Only use name if there's no SKU to avoid double-counting
+            const current = nameCounts.get(item.productName) || {
+              units: 0,
+              revenue: 0,
+            };
+            current.units += qty;
+            current.revenue += itemTotal;
+            nameCounts.set(item.productName, current);
+          }
         }
       }
     }
 
-    // Group products by supplier
-    const groups = new Map<string, SupplierGroup>();
+    // Group products by category
+    const groups = new Map<string, CategoryGroup>();
 
-    for (const product of products) {
-      const sku = String(product.SKU || "");
-      const name = String(product["Product Name"] || "");
-      const cost = Number(product.Cost) || 0;
-      const price = Number(product["Tax-Exclusive Price"]) || 0;
-      const supplierRaw = String(product.Supplier || "");
-
-      // Normalize supplier name to extract base name and supply type
-      const { base: supplierBase, type: supplyType } =
-        normalizeSupplier(supplierRaw);
+    for (const product of productsData) {
+      const sku = String(product.sku || "");
+      const name = String(product.name || "");
+      const productId = product.id || "";
+      const cost = Number(product.cost) || 0;
+      const price = Number(product.unitPrice) || 0;
+      const category = String(product.category || "Uncategorized");
 
       // Try to get sales data by SKU first, fallback to name if no SKU
       let saleData = skuCounts.get(sku) || { units: 0, revenue: 0 };
       if (!sku && name) {
         // No SKU found, try matching by product name
         saleData = nameCounts.get(name) || { units: 0, revenue: 0 };
+      }
+
+      // Get stock balance from inventory API if available, fallback to product.quantity
+      let stockBalance = Number(product.quantity) || 0;
+      let warningStock: number | undefined;
+      let idealStock: number | undefined;
+
+      if (productId && inventoryMap.has(productId)) {
+        const invData = inventoryMap.get(productId)!;
+        stockBalance = invData.quantityOnHand;
+        warningStock = invData.warningStock;
+        idealStock = invData.idealStock;
       }
 
       const productData: ProductData = {
@@ -132,16 +155,18 @@ export default function ProductsClient() {
         margin: price - cost,
         unitsSold: saleData.units,
         revenue: saleData.revenue,
-        stockBalance: Number(product["Gembira Momento_Quantity"]) || 0,
+        stockBalance,
+        warningStock,
+        idealStock,
         missingSkuWarning: !sku, // Flag products without SKU
       };
 
-      const key = supplierBase; // Use normalized base name as key
+      const key = category;
 
       if (!groups.has(key)) {
         groups.set(key, {
-          supplier: key,
-          supplyType: supplyType, // Store the supply type
+          category: key,
+          categoryType: "",
           productCount: 0,
           totalRevenue: 0,
           totalCost: 0,
@@ -162,14 +187,14 @@ export default function ProductsClient() {
       group.products.push(productData);
     }
 
-    // Sort suppliers: "No Supplier" first, then alphabetically
+    // Sort categories alphabetically, "Uncategorized" last
     const sortedGroups = Array.from(groups.values()).sort((a, b) => {
-      if (a.supplier === "No Supplier") return -1;
-      if (b.supplier === "No Supplier") return 1;
-      return a.supplier.localeCompare(b.supplier);
+      if (a.category === "Uncategorized") return 1;
+      if (b.category === "Uncategorized") return -1;
+      return a.category.localeCompare(b.category);
     });
 
-    // Sort products within each supplier by name
+    // Sort products within each category by name
     for (const group of sortedGroups) {
       group.products.sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -190,15 +215,32 @@ export default function ProductsClient() {
         ),
       }))
       .filter((group) => group.products.length > 0);
-  }, [searchTerm]);
+  }, [searchTerm, productsData, transactionsData, inventoryData]);
 
   const formatCurrency = (value: number) => {
     return value.toFixed(2);
   };
 
-  const toggleSupplier = (supplier: string) => {
-    setExpandedSupplier(expandedSupplier === supplier ? null : supplier);
+  const toggleSupplier = (category: string) => {
+    setExpandedCategory(expandedCategory === category ? null : category);
   };
+
+  // Loading state
+  if (productsLoading || transactionsLoading) {
+    return (
+      <div className="w-full bg-white min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading products and sales data...</p>
+          {storeId && inventoryLoading && (
+            <p className="text-sm text-gray-500 mt-2">
+              Fetching inventory levels...
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full bg-white min-h-screen">
@@ -210,7 +252,7 @@ export default function ProductsClient() {
               Products Inventory
             </h1>
             <p className="text-gray-600">
-              All products grouped by supplier with sales data
+              All products grouped by category with sales data
             </p>
           </div>
         </div>
@@ -230,29 +272,29 @@ export default function ProductsClient() {
         </div>
       </div>
 
-      {/* Supplier Groups */}
+      {/* Category Groups */}
       <div className="mx-auto max-w-7xl px-6 py-12">
-        {productGroups.length === 0 ? (
+        {categoryGroups.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-600 text-lg">No products found</p>
           </div>
         ) : (
           <div className="space-y-6">
-            {productGroups.map((group) => (
+            {categoryGroups.map((group) => (
               <div
-                key={group.supplier}
+                key={group.category}
                 className="border border-gray-200 rounded-lg overflow-hidden"
               >
-                {/* Supplier Header - Clickable */}
+                {/* Category Header - Clickable */}
                 <button
-                  onClick={() => toggleSupplier(group.supplier)}
+                  onClick={() => toggleSupplier(group.category)}
                   className="w-full bg-linear-to-r from-blue-50 to-blue-100 px-4 sm:px-6 py-4 hover:from-blue-100 hover:to-blue-200 transition-colors text-left"
                 >
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
                       <span
                         className={`transform transition-transform ${
-                          expandedSupplier === group.supplier
+                          expandedCategory === group.category
                             ? "rotate-90"
                             : "rotate-0"
                         }`}
@@ -262,15 +304,15 @@ export default function ProductsClient() {
                       <div>
                         <h2
                           className={`font-bold text-lg ${
-                            group.supplier === "No Supplier"
+                            group.category === "Uncategorized"
                               ? "text-red-700"
                               : "text-blue-700"
                           }`}
                         >
-                          {group.supplier}
-                          {group.supplyType && (
+                          {group.category}
+                          {group.categoryType && (
                             <span className="ml-2 text-sm font-normal text-gray-600 bg-gray-100 px-2 py-1 rounded">
-                              {group.supplyType}
+                              {group.categoryType}
                             </span>
                           )}
                         </h2>
@@ -327,7 +369,7 @@ export default function ProductsClient() {
                 </button>
 
                 {/* Products List - Expandable */}
-                {expandedSupplier === group.supplier && (
+                {expandedCategory === group.category && (
                   <div className="bg-white border-t border-gray-200">
                     <div className="divide-y divide-gray-200 max-h-96 overflow-auto">
                       {/* Header Row */}
@@ -448,28 +490,25 @@ export default function ProductsClient() {
                 Total Products
               </p>
               <p className="text-3xl font-bold text-blue-700">
-                {products.length}
+                {productsData?.length || 0}
               </p>
             </div>
 
             <div className="bg-purple-50 p-6 rounded-lg border-l-4 border-purple-500">
               <p className="text-sm font-medium text-gray-700 mb-1">
-                Total Suppliers
+                Total Categories
               </p>
               <p className="text-3xl font-bold text-purple-700">
-                {
-                  productGroups.filter((g) => g.supplier !== "No Supplier")
-                    .length
-                }
+                {categoryGroups.length}
               </p>
             </div>
 
             <div className="bg-red-50 p-6 rounded-lg border-l-4 border-red-500">
               <p className="text-sm font-medium text-gray-700 mb-1">
-                Products w/o Supplier
+                Products w/o Category
               </p>
               <p className="text-3xl font-bold text-red-700">
-                {productGroups.find((g) => g.supplier === "No Supplier")
+                {categoryGroups.find((g) => g.category === "Uncategorized")
                   ?.productCount || 0}
               </p>
             </div>
@@ -481,7 +520,7 @@ export default function ProductsClient() {
               <p className="text-3xl font-bold text-green-700">
                 RM{" "}
                 {formatCurrency(
-                  productGroups.reduce((sum, g) => sum + g.totalRevenue, 0),
+                  categoryGroups.reduce((sum, g) => sum + g.totalRevenue, 0),
                 )}
               </p>
             </div>

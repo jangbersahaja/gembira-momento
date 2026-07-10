@@ -8,7 +8,7 @@ const timesheets = [
     "Email": ",",
     "Time In": "",
     "Time Out": "",
-    "Total Hours": "271.94"
+    "Total Hours": "277.90"
   },
   {
     "Last Name": "",
@@ -297,6 +297,14 @@ const timesheets = [
     "Time In": "06/21/2026 Sunday 11:04",
     "Time Out": "06/21/2026 Sunday 18:01",
     "Total Hours": "6.94"
+  },
+  {
+    "Last Name": "",
+    "First Name": "",
+    "Email": "",
+    "Time In": "07/06/2026 Monday 17:06",
+    "Time Out": "07/06/2026 Monday 23:03",
+    "Total Hours": "5.96"
   },
   {
     "Last Name": ".",
@@ -656,7 +664,7 @@ const timesheets = [
     "Email": ".",
     "Time In": "",
     "Time Out": "",
-    "Total Hours": "729.73"
+    "Total Hours": "741.66"
   },
   {
     "Last Name": "",
@@ -1243,6 +1251,14 @@ const timesheets = [
     "Total Hours": "6.19"
   },
   {
+    "Last Name": "",
+    "First Name": "",
+    "Email": "",
+    "Time In": "07/06/2026 Monday 11:07",
+    "Time Out": "07/06/2026 Monday 23:03",
+    "Total Hours": "11.93"
+  },
+  {
     "Last Name": "Syazarul",
     "First Name": "Jufri",
     "Email": "jufrisyazarulfahmi@gmail.com",
@@ -1264,7 +1280,7 @@ const timesheets = [
     "Email": "gembiraceo@gmail.com",
     "Time In": "",
     "Time Out": "",
-    "Total Hours": "343.04"
+    "Total Hours": "345.58"
   },
   {
     "Last Name": "",
@@ -1737,6 +1753,14 @@ const timesheets = [
     "Time In": "07/05/2026 Sunday 10:50",
     "Time Out": "07/05/2026 Sunday 21:07",
     "Total Hours": "10.29"
+  },
+  {
+    "Last Name": "",
+    "First Name": "",
+    "Email": "",
+    "Time In": "07/06/2026 Monday 15:07",
+    "Time Out": "07/06/2026 Monday 17:40",
+    "Total Hours": "2.55"
   }
 ];
 
