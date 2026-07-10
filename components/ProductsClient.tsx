@@ -37,6 +37,7 @@ interface CategoryGroup {
 export default function ProductsClient() {
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  const [groupByCategory, setGroupByCategory] = useState(false);
 
   // Get storeId from environment variable (set in .env.local)
   const storeId = process.env.NEXT_PUBLIC_STOREHUB_STORE_ID || "";
@@ -258,27 +259,49 @@ export default function ProductsClient() {
         </div>
       </div>
 
-      {/* Search Bar */}
+      {/* Search Bar and Toggle */}
       <div className="mx-auto max-w-7xl px-6 py-6 border-b border-gray-200">
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Search by product name or SKU..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <span className="absolute right-4 top-3 text-gray-400">🔍</span>
+        <div className="flex flex-col gap-4">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search by product name or SKU..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <span className="absolute right-4 top-3 text-gray-400">🔍</span>
+          </div>
+
+          {/* Group Toggle */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setGroupByCategory(!groupByCategory)}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                groupByCategory
+                  ? "bg-blue-500 text-white hover:bg-blue-600"
+                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
+            >
+              {groupByCategory ? "✓ Grouped by Category" : "Ungrouped"}
+            </button>
+            <p className="text-sm text-gray-600">
+              {groupByCategory
+                ? "Click to view all products ungrouped"
+                : "Click to group by category"}
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Category Groups */}
+      {/* Category Groups or Flat List */}
       <div className="mx-auto max-w-7xl px-6 py-12">
         {categoryGroups.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-600 text-lg">No products found</p>
           </div>
-        ) : (
+        ) : groupByCategory ? (
+          // GROUPED VIEW
           <div className="space-y-6">
             {categoryGroups.map((group) => (
               <div
@@ -412,17 +435,6 @@ export default function ProductsClient() {
                             <span className="hover:text-blue-600">
                               {product.name}
                             </span>
-                            {product.missingSkuWarning && (
-                              <span className="ml-2 text-xs bg-orange-200 text-orange-900 px-2 py-1 rounded">
-                                ⚠ No SKU
-                              </span>
-                            )}
-                            {product.unitsSold === 0 &&
-                              !product.missingSkuWarning && (
-                                <span className="ml-2 text-xs bg-yellow-200 text-yellow-900 px-2 py-1 rounded">
-                                  No sales
-                                </span>
-                              )}
                           </div>
                           <div className="col-span-1 text-right font-semibold text-gray-900">
                             {product.stockBalance || "—"}
@@ -480,6 +492,96 @@ export default function ProductsClient() {
               </div>
             ))}
           </div>
+        ) : (
+          // FLAT LIST VIEW (UNGROUPED)
+          <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <div className="divide-y divide-gray-200 max-h-full">
+              {/* Header Row */}
+              <div className="min-w-[1100px] px-4 sm:px-6 py-3 bg-gray-50 grid grid-cols-15 gap-3 sticky top-0 text-xs font-semibold text-gray-700">
+                <div className="col-span-1">SKU</div>
+                <div className="col-span-3">Product Name</div>
+                <div className="col-span-1 text-right">Stock</div>
+                <div className="col-span-1 text-right">Stock Value</div>
+                <div className="col-span-1 text-right">Cost</div>
+                <div className="col-span-1 text-right">Price</div>
+                <div className="col-span-1 text-right">Margin</div>
+                <div className="col-span-1 text-right">Units Sold</div>
+                <div className="col-span-2 text-right">Revenue</div>
+                <div className="col-span-2 text-right">Profit</div>
+              </div>
+
+              {/* All Products */}
+              {categoryGroups.flatMap((group) =>
+                group.products.map((product) => (
+                  <Link
+                    key={product.sku + product.name}
+                    href={`/products/${encodeURIComponent(product.sku)}`}
+                    className={`min-w-[1100px] px-4 sm:px-6 py-3 grid grid-cols-15 gap-3 text-sm transition-colors ${
+                      product.missingSkuWarning
+                        ? "bg-orange-50 hover:bg-orange-100 border-l-2 border-orange-400"
+                        : product.unitsSold === 0
+                          ? "bg-yellow-50 hover:bg-yellow-100"
+                          : "hover:bg-gray-50"
+                    }`}
+                  >
+                    <div className="col-span-1 font-mono text-xs">
+                      {product.sku ? (
+                        <span className="text-gray-600">{product.sku}</span>
+                      ) : (
+                        <span className="text-orange-600 font-semibold"></span>
+                      )}
+                    </div>
+                    <div className="col-span-3 text-gray-900 truncate">
+                      <span className="hover:text-blue-600">
+                        {product.name}
+                      </span>
+                    </div>
+                    <div className="col-span-1 text-right font-semibold text-gray-900">
+                      {product.stockBalance || "—"}
+                    </div>
+                    <div className="col-span-1 text-right font-semibold text-gray-700">
+                      RM {formatCurrency(product.stockBalance * product.cost)}
+                    </div>
+                    <div className="col-span-1 text-right text-gray-700">
+                      RM {formatCurrency(product.cost)}
+                    </div>
+                    <div className="col-span-1 text-right text-gray-700">
+                      RM {formatCurrency(product.price)}
+                    </div>
+                    <div
+                      className={`col-span-1 text-right font-semibold ${
+                        product.margin >= 0 ? "text-green-700" : "text-red-700"
+                      }`}
+                    >
+                      RM {formatCurrency(product.margin)}
+                    </div>
+                    <div className="col-span-1 text-right font-semibold">
+                      {product.unitsSold}
+                    </div>
+                    <div className="col-span-2 text-right font-semibold text-blue-700">
+                      RM {formatCurrency(product.revenue)}
+                    </div>
+                    <div
+                      className={`col-span-2 text-right font-semibold ${
+                        product.unitsSold === 0
+                          ? "text-gray-400"
+                          : product.revenue - product.cost * product.unitsSold >
+                              0
+                            ? "text-green-700"
+                            : "text-red-700"
+                      }`}
+                    >
+                      {product.unitsSold === 0
+                        ? "—"
+                        : `RM ${formatCurrency(
+                            product.revenue - product.cost * product.unitsSold,
+                          )}`}
+                    </div>
+                  </Link>
+                )),
+              )}
+            </div>
+          </div>
         )}
 
         {/* Summary Stats */}
@@ -490,16 +592,16 @@ export default function ProductsClient() {
                 Total Products
               </p>
               <p className="text-3xl font-bold text-blue-700">
-                {productsData?.length || 0}
+                {categoryGroups.reduce((sum, g) => sum + g.productCount, 0)}
               </p>
             </div>
 
             <div className="bg-purple-50 p-6 rounded-lg border-l-4 border-purple-500">
               <p className="text-sm font-medium text-gray-700 mb-1">
-                Total Categories
+                {groupByCategory ? "Total Categories" : "Showing All Products"}
               </p>
               <p className="text-3xl font-bold text-purple-700">
-                {categoryGroups.length}
+                {groupByCategory ? categoryGroups.length : "All"}
               </p>
             </div>
 
