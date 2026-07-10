@@ -5,10 +5,19 @@ import Link from "next/link";
 export default function DashboardPage() {
   const managementPages = [
     {
+      title: "Sales Dashboard",
+      description:
+        "Real-time monitoring of transactions, products sold, and staff on duty",
+      href: "/dashboard/sales-dashboard",
+      icon: "📊",
+      color: "bg-orange-50 border-orange-200",
+      iconBg: "bg-orange-100 text-orange-700",
+    },
+    {
       title: "Monthly Reports",
       description: "Financial reports, revenue analysis, and expense breakdown",
       href: "/reports",
-      icon: "📊",
+      icon: "📈",
       color: "bg-blue-50 border-blue-200",
       iconBg: "bg-blue-100 text-blue-700",
     },
@@ -17,7 +26,7 @@ export default function DashboardPage() {
       description:
         "Detailed sales breakdown by time, product, staff, and supplier",
       href: "/sales-assessment",
-      icon: "📈",
+      icon: "💹",
       color: "bg-green-50 border-green-200",
       iconBg: "bg-green-100 text-green-700",
     },
