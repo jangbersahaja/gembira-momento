@@ -1,9 +1,13 @@
 "use client";
 
+import {
+  useInventory,
+  useProducts,
+  useTransactions,
+} from "@/lib/useStorehubApi";
 import { useRouter } from "next/navigation";
 import { use, useMemo } from "react";
 import products from "../../../data/products";
-import transactions from "../../../data/transactions";
 
 interface PageProps {
   params: Promise<{
@@ -11,82 +15,111 @@ interface PageProps {
   }>;
 }
 
+interface ApiProduct {
+  id: string;
+  name: string;
+  sku: string;
+  category?: string;
+  unitPrice: number;
+  cost: number;
+}
+
+interface InventoryItem {
+  productId: string;
+  quantityOnHand: number;
+  warningStock?: number;
+  idealStock?: number;
+}
+
 export default function ProductDetailsPage({ params }: PageProps) {
   const router = useRouter();
   const { sku } = use(params);
   const decodedSku = decodeURIComponent(sku);
 
-  const product = useMemo(() => {
+  // Get storeId from environment variable
+  const storeId = process.env.NEXT_PUBLIC_STOREHUB_STORE_ID || "";
+
+  // Fetch data from API
+  const { data: productsData, loading: productsLoading } = useProducts();
+  const { data: transactionsData, loading: transactionsLoading } =
+    useTransactions();
+  const { data: inventoryData } = useInventory(storeId);
+
+  // Get product from CSV for supplier info
+  const csvProduct = useMemo(() => {
     return products.find((p) => String(p.SKU) === decodedSku);
   }, [decodedSku]);
 
+  // Get product from API data
+  const apiProduct = useMemo(() => {
+    if (!productsData) return null;
+    return (productsData as ApiProduct[]).find(
+      (p) => String(p.sku) === decodedSku,
+    );
+  }, [productsData, decodedSku]);
+
+  // Get inventory from API
+  const inventory = useMemo(() => {
+    if (!inventoryData || !apiProduct) return null;
+    return (inventoryData as InventoryItem[]).find(
+      (inv) => inv.productId === apiProduct.id,
+    );
+  }, [inventoryData, apiProduct]);
+
+  // Get product metrics from API transactions
   const productMetrics = useMemo(() => {
-    if (!product) return null;
+    if (!apiProduct || !transactionsData || !Array.isArray(transactionsData))
+      return null;
 
     let totalQuantity = 0;
     let totalRevenue = 0;
     let totalCost = 0;
     let transactionCount = 0;
+    let lastTransactionDate: string | null = null;
     const monthlyData = new Map<
       string,
       { qty: number; revenue: number; cost: number }
     >();
 
-    // Process transactions
-    for (const tx of transactions) {
-      // Only count item rows (where Item is not empty and is a Sale, not cancelled)
-      const txName = String(tx.Item || "");
-      const txType = String(tx["Transaction Type"] || "");
-      const isCancelled = String(tx.Is_Cancelled || "");
+    const cost = Number(apiProduct.cost) || 0;
 
-      // Skip non-item rows or cancelled transactions
-      if (!txName || txType !== "Sale" || isCancelled === "True") {
+    // Process API transactions
+    for (const tx of transactionsData) {
+      // Only count completed transactions
+      if (tx.status !== "completed" || !tx.items) {
         continue;
       }
 
-      const txSku = String(tx.SKU || "");
-      const productName = String(product["Product Name"] || "");
+      const txDate = new Date(tx.timestamp);
 
-      // Match by SKU or product name
-      if (txSku === decodedSku || txName === productName) {
-        const quantity =
-          typeof tx.Quantity === "number"
-            ? tx.Quantity
-            : Number(tx.Quantity) || 0;
-        const subtotal =
-          typeof tx.SubTotal === "number"
-            ? tx.SubTotal
-            : Number(tx.SubTotal) || 0;
-        const discount =
-          typeof tx.Discount === "number"
-            ? tx.Discount
-            : Number(tx.Discount) || 0;
-        const revenue = Math.abs(subtotal) - Math.abs(discount);
+      for (const item of tx.items) {
+        // Match by SKU
+        if (String(item.sku) === decodedSku) {
+          const quantity = item.quantity || 0;
+          const itemTotal = item.totalPrice || 0;
 
-        const cost =
-          (typeof product.Cost === "number"
-            ? product.Cost
-            : Number(product.Cost) || 0) * quantity;
+          totalQuantity += quantity;
+          totalRevenue += itemTotal;
+          totalCost += cost * quantity;
+          transactionCount += 1;
 
-        totalQuantity += quantity;
-        totalRevenue += revenue;
-        totalCost += cost;
-        transactionCount += 1;
-
-        // Monthly breakdown
-        const timeStr = String(tx.Time || "");
-        const dateMatch = timeStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-        if (dateMatch) {
-          const [, month, , year] = dateMatch;
-          const monthKey = `${year}-${month.padStart(2, "0")}`;
-
-          if (!monthlyData.has(monthKey)) {
-            monthlyData.set(monthKey, { qty: 0, revenue: 0, cost: 0 });
+          // Track last transaction
+          if (!lastTransactionDate || new Date(lastTransactionDate) < txDate) {
+            lastTransactionDate = tx.timestamp;
           }
-          const current = monthlyData.get(monthKey)!;
+
+          // Monthly breakdown
+          const month =
+            txDate.getFullYear() +
+            "-" +
+            String(txDate.getMonth() + 1).padStart(2, "0");
+          if (!monthlyData.has(month)) {
+            monthlyData.set(month, { qty: 0, revenue: 0, cost: 0 });
+          }
+          const current = monthlyData.get(month)!;
           current.qty += quantity;
-          current.revenue += revenue;
-          current.cost += cost;
+          current.revenue += itemTotal;
+          current.cost += cost * quantity;
         }
       }
     }
@@ -97,6 +130,97 @@ export default function ProductDetailsPage({ params }: PageProps) {
     const avgPrice =
       totalQuantity > 0 ? (totalRevenue / totalQuantity).toFixed(2) : "0.00";
 
+    // Format last transaction date
+    let lastTransactionFormatted = null;
+    if (lastTransactionDate) {
+      const txDate = new Date(lastTransactionDate);
+      const today = new Date();
+      const malaysiaOffset = 8 * 60;
+      const utcOffset = today.getTimezoneOffset();
+      const offsetDifference = malaysiaOffset + utcOffset;
+      const malaysiaNow = new Date(
+        today.getTime() + offsetDifference * 60 * 1000,
+      );
+      malaysiaNow.setHours(0, 0, 0, 0);
+
+      const txDateLocal = new Date(
+        txDate.getTime() + offsetDifference * 60 * 1000,
+      );
+      txDateLocal.setHours(0, 0, 0, 0);
+
+      const daysAgo = Math.floor(
+        (malaysiaNow.getTime() - txDateLocal.getTime()) / (1000 * 60 * 60 * 24),
+      );
+
+      if (daysAgo === 0) {
+        lastTransactionFormatted = "today";
+      } else if (daysAgo === 1) {
+        lastTransactionFormatted = "1 day ago";
+      } else if (daysAgo > 1) {
+        lastTransactionFormatted = `${daysAgo} days ago`;
+      } else {
+        lastTransactionFormatted = "future";
+      }
+    }
+
+    // Calculate restocking suggestion
+    let restockingSuggestion: {
+      shouldRestock: boolean;
+      quantity: number;
+      urgency: "critical" | "high" | "medium" | "low" | "none";
+      daysUntilStockout?: number;
+      reason: string;
+    } | null = null;
+
+    if (inventory) {
+      const currentStock = inventory.quantityOnHand;
+      const warningLevel = inventory.warningStock || 0;
+      const idealLevel = inventory.idealStock || warningLevel * 2;
+
+      // Calculate daily sales velocity from last 30 days
+      const last30Days = Array.from(monthlyData.values());
+      const dailySalesVelocity =
+        last30Days.length > 0
+          ? last30Days.reduce((sum, d) => sum + d.qty, 0) / 30
+          : 0;
+
+      let urgency: "critical" | "high" | "medium" | "low" | "none" = "none";
+      let daysUntilStockout: number | undefined;
+      let reason = "";
+
+      // Determine urgency based on current stock vs warning level
+      if (currentStock <= warningLevel / 2) {
+        urgency = "critical";
+        reason = "Stock critically low";
+      } else if (currentStock < warningLevel) {
+        urgency = "high";
+        reason = "Stock below warning level";
+      } else if (dailySalesVelocity > 0) {
+        // Estimate days until warning level at current velocity
+        const stockAboveWarning = currentStock - warningLevel;
+        daysUntilStockout = Math.ceil(stockAboveWarning / dailySalesVelocity);
+
+        if (daysUntilStockout <= 7) {
+          urgency = "medium";
+          reason = `Will reach warning level in ~${daysUntilStockout} days`;
+        } else if (daysUntilStockout <= 14) {
+          urgency = "low";
+          reason = `Will reach warning level in ~${daysUntilStockout} days`;
+        }
+      }
+
+      // Calculate restocking quantity (restock to ideal level if defined)
+      const restockQuantity = Math.max(0, idealLevel - currentStock);
+
+      restockingSuggestion = {
+        shouldRestock: urgency !== "none" && restockQuantity > 0,
+        quantity: Math.ceil(restockQuantity),
+        urgency,
+        daysUntilStockout,
+        reason,
+      };
+    }
+
     return {
       totalQuantity,
       totalRevenue,
@@ -105,6 +229,8 @@ export default function ProductDetailsPage({ params }: PageProps) {
       margin,
       transactionCount,
       avgPrice,
+      lastTransactionDate: lastTransactionFormatted,
+      restockingSuggestion,
       monthlyData: Array.from(monthlyData.entries())
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([month, data]) => ({
@@ -112,9 +238,20 @@ export default function ProductDetailsPage({ params }: PageProps) {
           ...data,
         })),
     };
-  }, [product, decodedSku]);
+  }, [apiProduct, decodedSku, transactionsData, inventory]);
 
-  if (!product) {
+  if (productsLoading || transactionsLoading) {
+    return (
+      <div className="w-full bg-white min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading product details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!apiProduct) {
     return (
       <div className="w-full bg-white min-h-screen">
         <div className="mx-auto max-w-7xl px-6 py-12">
@@ -149,6 +286,8 @@ export default function ProductDetailsPage({ params }: PageProps) {
     return value.toLocaleString("en-MY");
   };
 
+  const supplierName = csvProduct?.Supplier || "Unknown";
+
   return (
     <div className="w-full bg-white min-h-screen">
       {/* Header */}
@@ -163,22 +302,22 @@ export default function ProductDetailsPage({ params }: PageProps) {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <h1 className="text-4xl font-bold text-slate-900 mb-2">
-              {product["Product Name"]}
+              {apiProduct.name}
             </h1>
-            <p className="text-lg text-gray-600">SKU: {product.SKU}</p>
+            <p className="text-lg text-gray-600">SKU: {apiProduct.sku}</p>
           </div>
 
           <div className="md:text-right">
             <div className="text-sm text-gray-500 mb-2">Category</div>
             <p className="text-xl font-semibold text-slate-900">
-              {product.Category || "Uncategorized"}
+              {apiProduct.category || "Uncategorized"}
             </p>
           </div>
 
           <div className="md:text-right">
             <div className="text-sm text-gray-500 mb-2">Supplier</div>
             <p className="text-xl font-semibold text-slate-900">
-              {product.Supplier || "Unknown"}
+              {supplierName}
             </p>
           </div>
         </div>
@@ -187,28 +326,18 @@ export default function ProductDetailsPage({ params }: PageProps) {
       {/* Content */}
       <div className="mx-auto max-w-7xl px-6 py-12">
         {/* Product Info Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <div className="rounded-lg border bg-blue-50 p-4">
             <div className="text-sm font-medium text-gray-700 mb-1">Price</div>
             <div className="text-2xl font-bold text-blue-700">
-              RM{" "}
-              {formatCurrency(
-                typeof product["Tax-Exclusive Price"] === "number"
-                  ? product["Tax-Exclusive Price"]
-                  : Number(product["Tax-Exclusive Price"]) || 0,
-              )}
+              RM {formatCurrency(Number(apiProduct.unitPrice) || 0)}
             </div>
           </div>
 
           <div className="rounded-lg border bg-red-50 p-4">
             <div className="text-sm font-medium text-gray-700 mb-1">Cost</div>
             <div className="text-2xl font-bold text-red-700">
-              RM{" "}
-              {formatCurrency(
-                typeof product.Cost === "number"
-                  ? product.Cost
-                  : Number(product.Cost) || 0,
-              )}
+              RM {formatCurrency(Number(apiProduct.cost) || 0)}
             </div>
           </div>
 
@@ -219,82 +348,98 @@ export default function ProductDetailsPage({ params }: PageProps) {
             <div className="text-2xl font-bold text-green-700">
               RM{" "}
               {formatCurrency(
-                (typeof product["Tax-Exclusive Price"] === "number"
-                  ? product["Tax-Exclusive Price"]
-                  : Number(product["Tax-Exclusive Price"]) || 0) -
-                  (typeof product.Cost === "number"
-                    ? product.Cost
-                    : Number(product.Cost) || 0),
+                (Number(apiProduct.unitPrice) || 0) -
+                  (Number(apiProduct.cost) || 0),
               )}
             </div>
           </div>
 
           <div className="rounded-lg border bg-purple-50 p-4">
-            <div className="text-sm font-medium text-gray-700 mb-1">
-              Current Stock
-            </div>
+            <div className="text-sm font-medium text-gray-700 mb-1">Stock</div>
             <div className="text-2xl font-bold text-purple-700">
-              {product["Gembira Momento_Quantity"] !== "" &&
-              product["Gembira Momento_Quantity"] !== undefined
-                ? product["Gembira Momento_Quantity"]
-                : "—"}
+              {inventory?.quantityOnHand ?? "—"}
             </div>
             <div className="text-xs text-gray-500 mt-2">units</div>
           </div>
+
+          <div className="rounded-lg border bg-orange-50 p-4">
+            <div className="text-sm font-medium text-gray-700 mb-1">
+              Last Transaction
+            </div>
+            <div className="text-2xl font-bold text-orange-700">
+              {productMetrics?.lastTransactionDate ?? "—"}
+            </div>
+          </div>
         </div>
 
-        {/* Stock Status Section */}
-        {(product["Gembira Momento_Warning Stock Level"] !== "" ||
-          product["Gembira Momento_Ideal Stock Level"] !== "" ||
-          product["Inventory Type"]) && (
-          <div className="mb-8 rounded-lg border bg-linear-to-r from-amber-50 to-orange-50 p-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">
-              Stock Management
-            </h3>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="rounded-lg bg-white p-4 border border-amber-200">
-                <div className="text-sm font-medium text-gray-600 mb-1">
-                  Current Stock
+        {/* Restocking Suggestion Alert */}
+        {productMetrics?.restockingSuggestion && (
+          <div
+            className={`mb-8 rounded-lg p-6 border-l-4 ${
+              productMetrics.restockingSuggestion.urgency === "critical"
+                ? "bg-red-50 border-red-500"
+                : productMetrics.restockingSuggestion.urgency === "high"
+                  ? "bg-orange-50 border-orange-500"
+                  : productMetrics.restockingSuggestion.urgency === "medium"
+                    ? "bg-yellow-50 border-yellow-500"
+                    : "bg-blue-50 border-blue-500"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div
+                  className={`text-lg font-semibold mb-2 ${
+                    productMetrics.restockingSuggestion.urgency === "critical"
+                      ? "text-red-700"
+                      : productMetrics.restockingSuggestion.urgency === "high"
+                        ? "text-orange-700"
+                        : productMetrics.restockingSuggestion.urgency ===
+                            "medium"
+                          ? "text-yellow-700"
+                          : "text-blue-700"
+                  }`}
+                >
+                  📦 Restocking Suggestion
                 </div>
-                <div className="text-2xl font-bold text-amber-700">
-                  {product["Gembira Momento_Quantity"] !== "" &&
-                  product["Gembira Momento_Quantity"] !== undefined
-                    ? product["Gembira Momento_Quantity"]
-                    : "—"}
+                <p className="text-gray-700 mb-3">
+                  {productMetrics.restockingSuggestion.reason}
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-gray-600 mb-1">
+                      Quantity to Restock
+                    </p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      {productMetrics.restockingSuggestion.quantity} units
+                    </p>
+                  </div>
+                  {productMetrics.restockingSuggestion.daysUntilStockout !==
+                    undefined && (
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">
+                        Days Until Warning Level
+                      </p>
+                      <p className="text-2xl font-bold text-slate-900">
+                        ~{productMetrics.restockingSuggestion.daysUntilStockout}{" "}
+                        days
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
-
-              <div className="rounded-lg bg-white p-4 border border-orange-200">
-                <div className="text-sm font-medium text-gray-600 mb-1">
-                  Warning Level
-                </div>
-                <div className="text-2xl font-bold text-orange-700">
-                  {product["Gembira Momento_Warning Stock Level"] !== "" &&
-                  product["Gembira Momento_Warning Stock Level"] !== undefined
-                    ? product["Gembira Momento_Warning Stock Level"]
-                    : "—"}
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-white p-4 border border-green-200">
-                <div className="text-sm font-medium text-gray-600 mb-1">
-                  Ideal Stock Level
-                </div>
-                <div className="text-2xl font-bold text-green-700">
-                  {product["Gembira Momento_Ideal Stock Level"] !== "" &&
-                  product["Gembira Momento_Ideal Stock Level"] !== undefined
-                    ? product["Gembira Momento_Ideal Stock Level"]
-                    : "—"}
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-white p-4 border border-slate-200">
-                <div className="text-sm font-medium text-gray-600 mb-1">
-                  Inventory Type
-                </div>
-                <div className="text-2xl font-bold text-slate-700">
-                  {product["Inventory Type"] || "—"}
-                </div>
+              <div
+                className={`px-4 py-2 rounded-lg font-semibold text-sm whitespace-nowrap ${
+                  productMetrics.restockingSuggestion.urgency === "critical"
+                    ? "bg-red-100 text-red-700"
+                    : productMetrics.restockingSuggestion.urgency === "high"
+                      ? "bg-orange-100 text-orange-700"
+                      : productMetrics.restockingSuggestion.urgency === "medium"
+                        ? "bg-yellow-100 text-yellow-700"
+                        : "bg-blue-100 text-blue-700"
+                }`}
+              >
+                {productMetrics.restockingSuggestion.urgency.toUpperCase()}{" "}
+                PRIORITY
               </div>
             </div>
           </div>

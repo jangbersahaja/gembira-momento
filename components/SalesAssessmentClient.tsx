@@ -1,9 +1,8 @@
 "use client";
 
+import { useProducts, useTransactions } from "@/lib/useStorehubApi";
 import { useMemo, useRef, useState } from "react";
 import products from "../data/products";
-import shifts from "../data/shifts";
-import transactions from "../data/transactions";
 import {
   DayOfWeekTrendCharts,
   PaymentTypeBarChart,
@@ -39,27 +38,36 @@ const normalizeSupplier = (supplierStr: string) => {
 };
 
 // Create cost lookup maps from product SKU and product name
-const costBySkuMap = new Map<string, number>();
-const costByNameMap = new Map<string, number>();
+// This will be populated from API data in the component
+const createCostMaps = (apiProducts: any[]) => {
+  const costBySkuMap = new Map<string, number>();
+  const costByNameMap = new Map<string, number>();
 
-for (const product of products) {
-  const cost =
-    typeof product.Cost === "number" ? product.Cost : Number(product.Cost) || 0;
-  const sku = String(product.SKU);
-  const name = String(product["Product Name"]);
+  for (const product of apiProducts) {
+    const cost = Number(product.cost) || 0;
+    const sku = String(product.sku || "");
+    const name = String(product.name || "");
 
-  // Map by SKU if available
-  if (sku && sku !== "undefined") {
-    costBySkuMap.set(sku, cost);
+    // Map by SKU if available
+    if (sku && sku !== "undefined") {
+      costBySkuMap.set(sku, cost);
+    }
+
+    // Also map by product name as fallback for empty/missing SKUs
+    if (name && name !== "undefined") {
+      costByNameMap.set(name, cost);
+    }
   }
 
-  // Also map by product name as fallback for empty/missing SKUs
-  if (name && name !== "undefined") {
-    costByNameMap.set(name, cost);
-  }
-}
+  return { costBySkuMap, costByNameMap };
+};
 
-const getCost = (sku: string, productName: string): number => {
+const getCost = (
+  sku: string,
+  productName: string,
+  costBySkuMap: Map<string, number>,
+  costByNameMap: Map<string, number>,
+): number => {
   // First try to lookup by SKU
   if (sku && sku !== "undefined") {
     const skuCost = costBySkuMap.get(sku);
@@ -76,36 +84,15 @@ const getCost = (sku: string, productName: string): number => {
 };
 
 const parseTime = (timeString: string): Date | null => {
-  // Try format with day name: "04/15/2026 Wednesday 16:29"
-  let match = timeString.match(
-    /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+\w+\s+(\d{1,2}):(\d{2})$/,
-  );
-  if (match) {
-    const [, month, day, year, hour, minute] = match;
-    return new Date(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-    );
+  // Parse ISO format timestamp from API (e.g., "2026-04-15T16:29:00Z")
+  try {
+    const date = new Date(timeString);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  } catch {
+    // Fall through to return null
   }
-
-  // Try format without day name: "04/15/2026 16:29"
-  match = timeString.match(
-    /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/,
-  );
-  if (match) {
-    const [, month, day, year, hour, minute] = match;
-    return new Date(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-    );
-  }
-
   return null;
 };
 
@@ -115,13 +102,6 @@ const formatRangeLabel = (hour: number) => {
   return `${start}:00 — ${end}:00`;
 };
 
-const formatNumber = (value: number) => {
-  return value.toLocaleString("en-MY", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  });
-};
-
 const formatCurrency = (value: number) => {
   return value.toLocaleString("en-MY", {
     minimumFractionDigits: 2,
@@ -129,37 +109,8 @@ const formatCurrency = (value: number) => {
   });
 };
 
-const getString = (value: unknown) => (typeof value === "string" ? value : "");
-
-const isTotalRow = (row: Record<string, unknown>) =>
-  getString(row["Transaction Type"]) === "Sale" &&
-  getString(row.Item) === "" &&
-  getString(row.Is_Cancelled) === "False" &&
-  row.SubTotal !== "" &&
-  row.SubTotal !== null &&
-  row.SubTotal !== undefined;
-
-const isItemRow = (row: Record<string, unknown>) =>
-  getString(row["Transaction Type"]) === "Sale" &&
-  getString(row.Is_Cancelled) === "False" &&
-  getString(row.Item) !== "";
-
-const getAmount = (value: unknown): number => {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  }
-  return 0;
-};
-
-const getQuantity = (value: unknown): number => {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  }
-  return 0;
+const formatNumber = (value: number) => {
+  return value.toLocaleString("en-MY");
 };
 
 /** Returns yyyy-MM-dd string for an input[type=date] value */
@@ -205,7 +156,11 @@ const getPresetRange = (preset: Preset): { from: Date; to: Date } | null => {
 
 // ─── data processing ─────────────────────────────────────────────────────────
 
-const groupByHour = (from: Date | null, to: Date | null) => {
+const groupByHour = (
+  from: Date | null,
+  to: Date | null,
+  transactionsData: any[],
+) => {
   const hourlyMap = new Map<number, { total: number; transactions: number }>();
   const receiptMap = new Map<
     string,
@@ -213,21 +168,19 @@ const groupByHour = (from: Date | null, to: Date | null) => {
   >();
   const dateSet = new Set<string>(); // Track unique dates
 
-  // First pass: collect receipt totals from payment methods
-  for (const row of transactions) {
-    if (!isTotalRow(row)) continue;
-    const date = parseTime(row.Time);
+  // First pass: collect receipt totals
+  for (const txn of transactionsData) {
+    if (txn.status !== "completed" || !txn.items || txn.items.length === 0)
+      continue;
+
+    const date = parseTime(txn.timestamp);
     if (!date) continue;
     if (from && date < from) continue;
     if (to && date > to) continue;
 
     const hour = date.getHours();
-    const receipt = getString(row["Receipt Number"]);
-    const cash = getAmount(row.Cash);
-    const qr = getAmount(row.QR);
-    const creditCard = getAmount(row["Credit Card"]);
-    const debitCard = getAmount(row["Debit Card"]);
-    const total = cash + qr + creditCard + debitCard;
+    const receipt = String(txn.receiptNumber || "");
+    const total = txn.total || 0;
     const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
     if (total > 0 && !receiptMap.has(receipt)) {
@@ -260,7 +213,13 @@ const groupByHour = (from: Date | null, to: Date | null) => {
     totalSales: hourly.reduce((s, r) => s + r.total, 0),
   };
 };
-const groupByDay = (from: Date | null, to: Date | null) => {
+const groupByDay = (
+  from: Date | null,
+  to: Date | null,
+  transactionsData: any[],
+  costBySkuMap: Map<string, number>,
+  costByNameMap: Map<string, number>,
+) => {
   const dailyMap = new Map<
     string,
     {
@@ -269,8 +228,6 @@ const groupByDay = (from: Date | null, to: Date | null) => {
       cost: number;
       firstTxnHour?: string;
       lastTxnHour?: string;
-      openingTime?: string;
-      closingTime?: string;
     }
   >();
   const receiptMap = new Map<
@@ -278,28 +235,25 @@ const groupByDay = (from: Date | null, to: Date | null) => {
     { date: string; total: number; time: string }
   >();
 
-  // First pass: collect receipt totals from payment methods and track times
-  for (const row of transactions) {
-    if (!isTotalRow(row)) continue;
-    const date = parseTime(row.Time);
+  // First pass: collect receipt totals
+  for (const txn of transactionsData) {
+    if (txn.status !== "completed" || !txn.items || txn.items.length === 0)
+      continue;
+
+    const date = parseTime(txn.timestamp);
     if (!date) continue;
     if (from && date < from) continue;
     if (to && date > to) continue;
 
     const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    const receipt = getString(row["Receipt Number"]);
-    const cash = getAmount(row.Cash);
-    const qr = getAmount(row.QR);
-    const creditCard = getAmount(row["Credit Card"]);
-    const debitCard = getAmount(row["Debit Card"]);
-    const total = cash + qr + creditCard + debitCard;
-    const timeStr = getString(row.Time);
+    const receipt = String(txn.receiptNumber || "");
+    const total = txn.total || 0;
     const hour = date.getHours().toString().padStart(2, "0");
     const minute = date.getMinutes().toString().padStart(2, "0");
     const hourMinute = `${hour}:${minute}`;
 
     if (total > 0 && !receiptMap.has(receipt)) {
-      receiptMap.set(receipt, { date: dateKey, total, time: timeStr });
+      receiptMap.set(receipt, { date: dateKey, total, time: txn.timestamp });
       if (!dailyMap.has(dateKey)) {
         dailyMap.set(dateKey, {
           total: 0,
@@ -317,113 +271,28 @@ const groupByDay = (from: Date | null, to: Date | null) => {
     }
   }
 
-  // Second pass: add opening and closing times from shifts for all dates (respecting date range)
-  for (const shift of shifts) {
-    const timeInStr = getString(shift["Open Time"]);
-    const timeOutStr = getString(shift["Close Time"]);
+  // Second pass: calculate cost for each day by processing items
+  for (const txn of transactionsData) {
+    if (txn.status !== "completed" || !txn.items || txn.items.length === 0)
+      continue;
 
-    if (timeInStr) {
-      const timeInDate = parseTime(timeInStr);
-      if (timeInDate) {
-        // Check if timeInDate is within the specified range
-        if (from && timeInDate < from) continue;
-        if (to && timeInDate > to) continue;
-
-        const dateKey = `${timeInDate.getFullYear()}-${String(timeInDate.getMonth() + 1).padStart(2, "0")}-${String(timeInDate.getDate()).padStart(2, "0")}`;
-        const hour = timeInDate.getHours().toString().padStart(2, "0");
-        const minute = timeInDate.getMinutes().toString().padStart(2, "0");
-        const timeDisplay = `${hour}:${minute}`;
-
-        // Create entry if it doesn't exist
-        if (!dailyMap.has(dateKey)) {
-          dailyMap.set(dateKey, {
-            total: 0,
-            transactions: 0,
-            cost: 0,
-            openingTime: timeDisplay,
-            closingTime: timeDisplay,
-          });
-        } else {
-          const current = dailyMap.get(dateKey)!;
-          // Set opening time if not set or if this is earlier
-          if (!current.openingTime) {
-            current.openingTime = timeDisplay;
-          } else {
-            const existingHour = parseInt(current.openingTime.split(":")[0]);
-            const existingMin = parseInt(current.openingTime.split(":")[1]);
-            const newHour = parseInt(hour);
-            const newMin = parseInt(minute);
-            if (
-              newHour < existingHour ||
-              (newHour === existingHour && newMin < existingMin)
-            ) {
-              current.openingTime = timeDisplay;
-            }
-          }
-        }
-      }
-    }
-
-    if (timeOutStr) {
-      const timeOutDate = parseTime(timeOutStr);
-      if (timeOutDate) {
-        // Check if timeOutDate is within the specified range
-        if (from && timeOutDate < from) continue;
-        if (to && timeOutDate > to) continue;
-
-        const dateKey = `${timeOutDate.getFullYear()}-${String(timeOutDate.getMonth() + 1).padStart(2, "0")}-${String(timeOutDate.getDate()).padStart(2, "0")}`;
-        const hour = timeOutDate.getHours().toString().padStart(2, "0");
-        const minute = timeOutDate.getMinutes().toString().padStart(2, "0");
-        const timeDisplay = `${hour}:${minute}`;
-
-        // Create entry if it doesn't exist
-        if (!dailyMap.has(dateKey)) {
-          dailyMap.set(dateKey, {
-            total: 0,
-            transactions: 0,
-            cost: 0,
-            openingTime: timeDisplay,
-            closingTime: timeDisplay,
-          });
-        } else {
-          const current = dailyMap.get(dateKey)!;
-          // Set closing time if not set or if this is later
-          if (!current.closingTime) {
-            current.closingTime = timeDisplay;
-          } else {
-            const existingHour = parseInt(current.closingTime.split(":")[0]);
-            const existingMin = parseInt(current.closingTime.split(":")[1]);
-            const newHour = parseInt(hour);
-            const newMin = parseInt(minute);
-            if (
-              newHour > existingHour ||
-              (newHour === existingHour && newMin > existingMin)
-            ) {
-              current.closingTime = timeDisplay;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // Second pass: calculate cost for each day by processing item rows
-  for (const row of transactions) {
-    if (!isItemRow(row)) continue;
-    const date = parseTime(getString(row.Time));
+    const date = parseTime(txn.timestamp);
     if (!date) continue;
     if (from && date < from) continue;
     if (to && date > to) continue;
 
     const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    const quantity = getQuantity(row.Quantity);
-    const sku = getString(row.SKU);
-    const name = getString(row.Item);
-    const unitCost = getCost(sku, name);
-    const totalCost = unitCost * quantity;
 
-    if (dailyMap.has(dateKey)) {
-      dailyMap.get(dateKey)!.cost += totalCost;
+    for (const item of txn.items) {
+      const quantity = item.quantity || 0;
+      const sku = String(item.sku || "");
+      const name = String(item.productName || "");
+      const unitCost = getCost(sku, name, costBySkuMap, costByNameMap);
+      const totalCost = unitCost * quantity;
+
+      if (dailyMap.has(dateKey)) {
+        dailyMap.get(dateKey)!.cost += totalCost;
+      }
     }
   }
 
@@ -437,23 +306,10 @@ const groupByDay = (from: Date | null, to: Date | null) => {
     margin: number;
     firstTxnHour?: string;
     lastTxnHour?: string;
-    openingTime?: string;
-    closingTime?: string;
   }> = Array.from(dailyMap.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(
-      ([
-        dateKey,
-        {
-          total,
-          transactions,
-          cost,
-          firstTxnHour,
-          lastTxnHour,
-          openingTime,
-          closingTime,
-        },
-      ]) => {
+      ([dateKey, { total, transactions, cost, firstTxnHour, lastTxnHour }]) => {
         const profit = total - cost;
         const margin = total > 0 ? (profit / total) * 100 : 0;
         return {
@@ -466,8 +322,6 @@ const groupByDay = (from: Date | null, to: Date | null) => {
           margin,
           firstTxnHour,
           lastTxnHour,
-          openingTime,
-          closingTime,
         };
       },
     );
@@ -482,7 +336,11 @@ const groupByDay = (from: Date | null, to: Date | null) => {
   };
 };
 
-const groupByDayOfWeek = (from: Date | null, to: Date | null) => {
+const groupByDayOfWeek = (
+  from: Date | null,
+  to: Date | null,
+  transactionsData: any[],
+) => {
   const dayNames = [
     "Monday",
     "Tuesday",
@@ -511,9 +369,11 @@ const groupByDayOfWeek = (from: Date | null, to: Date | null) => {
     string,
     { day: number; hour: number; total: number }
   >();
-  for (const row of transactions) {
-    if (!isTotalRow(row)) continue;
-    const date = parseTime(row.Time);
+  for (const txn of transactionsData) {
+    if (txn.status !== "completed" || !txn.items || txn.items.length === 0)
+      continue;
+
+    const date = parseTime(txn.timestamp);
     if (!date) continue;
     if (from && date < from) continue;
     if (to && date > to) continue;
@@ -523,12 +383,8 @@ const groupByDayOfWeek = (from: Date | null, to: Date | null) => {
     dayOfWeek = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 
     const hour = date.getHours();
-    const receipt = getString(row["Receipt Number"]);
-    const cash = getAmount(row.Cash);
-    const qr = getAmount(row.QR);
-    const creditCard = getAmount(row["Credit Card"]);
-    const debitCard = getAmount(row["Debit Card"]);
-    const total = cash + qr + creditCard + debitCard;
+    const receipt = String(txn.receiptNumber || "");
+    const total = txn.total || 0;
 
     if (total > 0 && !receiptMap.has(receipt)) {
       receiptMap.set(receipt, { day: dayOfWeek, hour, total });
@@ -572,39 +428,46 @@ const groupByDayOfWeek = (from: Date | null, to: Date | null) => {
   };
 };
 
-const groupByProduct = (from: Date | null, to: Date | null) => {
+const groupByProduct = (
+  from: Date | null,
+  to: Date | null,
+  transactionsData: any[],
+  costBySkuMap: Map<string, number>,
+  costByNameMap: Map<string, number>,
+) => {
   const productsMap = new Map<
     string,
     { total: number; quantity: number; cost: number; sku: string }
   >();
 
-  // Aggregate products - Calculate net sales (SubTotal - Discount)
-  for (const row of transactions) {
-    if (!isItemRow(row)) continue;
+  // Aggregate products
+  for (const txn of transactionsData) {
+    if (txn.status !== "completed" || !txn.items || txn.items.length === 0)
+      continue;
 
-    const date = parseTime(getString(row.Time));
+    const date = parseTime(txn.timestamp);
     if (!date) continue;
     if (from && date < from) continue;
     if (to && date > to) continue;
 
-    const name = getString(row.Item);
-    const subtotal = getAmount(row.SubTotal);
-    const discount = Math.abs(getAmount(row.Discount)); // discount is stored as negative, convert to positive
-    const netSales = subtotal - discount; // Net sales after discount
-    const quantity = getQuantity(row.Quantity);
-    const sku = getString(row.SKU);
+    for (const item of txn.items) {
+      const name = String(item.productName || "");
+      const quantity = item.quantity || 0;
+      const total = item.totalPrice || 0;
+      const sku = String(item.sku || "");
 
-    const unitCost = getCost(sku, name);
-    const totalCost = unitCost * quantity;
+      const unitCost = getCost(sku, name, costBySkuMap, costByNameMap);
+      const totalCost = unitCost * quantity;
 
-    if (!productsMap.has(name)) {
-      productsMap.set(name, { total: 0, quantity: 0, cost: 0, sku });
+      if (!productsMap.has(name)) {
+        productsMap.set(name, { total: 0, quantity: 0, cost: 0, sku });
+      }
+
+      const current = productsMap.get(name)!;
+      current.total += total;
+      current.quantity += quantity;
+      current.cost += totalCost;
     }
-
-    const current = productsMap.get(name)!;
-    current.total += netSales;
-    current.quantity += quantity;
-    current.cost += totalCost;
   }
 
   const products: ProductPoint[] = Array.from(productsMap.entries())
@@ -632,38 +495,37 @@ const groupByProduct = (from: Date | null, to: Date | null) => {
   };
 };
 
-const groupByPaymentType = (from: Date | null, to: Date | null) => {
+const groupByPaymentType = (
+  from: Date | null,
+  to: Date | null,
+  transactionsData: any[],
+) => {
   const seed = {
     Cash: { total: 0, transactions: 0 },
     QR: { total: 0, transactions: 0 },
     "Credit / Debit Card": { total: 0, transactions: 0 },
   };
 
-  for (const row of transactions) {
-    if (!isTotalRow(row)) continue;
+  for (const txn of transactionsData) {
+    if (txn.status !== "completed" || !txn.items || txn.items.length === 0)
+      continue;
 
-    const date = parseTime(getString(row.Time));
+    const date = parseTime(txn.timestamp);
     if (!date) continue;
     if (from && date < from) continue;
     if (to && date > to) continue;
 
-    const cashAmount = getAmount(row.Cash);
-    const qrAmount = getAmount(row.QR);
-    const cardAmount =
-      getAmount(row["Credit Card"]) + getAmount(row["Debit Card"]);
+    const method = txn.paymentMethod || "other";
+    const total = txn.total || 0;
 
-    if (cashAmount > 0) {
-      seed.Cash.total += cashAmount;
+    if (method === "cash") {
+      seed.Cash.total += total;
       seed.Cash.transactions += 1;
-    }
-
-    if (qrAmount > 0) {
-      seed.QR.total += qrAmount;
+    } else if (method === "qr") {
+      seed.QR.total += total;
       seed.QR.transactions += 1;
-    }
-
-    if (cardAmount > 0) {
-      seed["Credit / Debit Card"].total += cardAmount;
+    } else if (method === "card") {
+      seed["Credit / Debit Card"].total += total;
       seed["Credit / Debit Card"].transactions += 1;
     }
   }
@@ -690,7 +552,13 @@ const groupByPaymentType = (from: Date | null, to: Date | null) => {
   };
 };
 
-const groupByStaff = (from: Date | null, to: Date | null) => {
+const groupByStaff = (
+  from: Date | null,
+  to: Date | null,
+  transactionsData: any[],
+  costBySkuMap: Map<string, number>,
+  costByNameMap: Map<string, number>,
+) => {
   const staffMap = new Map<
     string,
     {
@@ -706,15 +574,17 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
   >();
 
   // First pass: collect receipt-level staff info
-  for (const row of transactions) {
-    if (!isTotalRow(row)) continue;
-    const date = parseTime(row.Time);
+  for (const txn of transactionsData) {
+    if (txn.status !== "completed" || !txn.items || txn.items.length === 0)
+      continue;
+
+    const date = parseTime(txn.timestamp);
     if (!date) continue;
     if (from && date < from) continue;
     if (to && date > to) continue;
 
-    const receiptNum = getString(row["Receipt Number"]);
-    const employee = getString(row.Employee);
+    const receiptNum = String(txn.receiptNumber || "");
+    const employee = String(txn.employeeId || ""); // Use employee ID from API
     if (receiptNum && !receiptMap.has(receiptNum)) {
       receiptMap.set(receiptNum, {
         employee: employee || "",
@@ -723,30 +593,35 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
     }
   }
 
-  // Second pass: aggregate staff data with net sales and cost tracking
-  for (const row of transactions) {
-    if (!isItemRow(row)) continue;
+  // Second pass: aggregate staff data
+  for (const txn of transactionsData) {
+    if (txn.status !== "completed" || !txn.items || txn.items.length === 0)
+      continue;
 
-    const date = parseTime(getString(row.Time));
+    const date = parseTime(txn.timestamp);
     if (!date) continue;
     if (from && date < from) continue;
     if (to && date > to) continue;
 
-    const receiptNum = getString(row["Receipt Number"]);
+    const receiptNum = String(txn.receiptNumber || "");
     const receiptData = receiptMap.get(receiptNum);
     if (!receiptData) continue;
 
     const employee = receiptData.employee;
     if (!employee) continue;
 
-    const sku = getString(row.SKU);
-    const quantity = getQuantity(row.Quantity);
-    const subtotal = getAmount(row.SubTotal);
-    const discount = Math.abs(getAmount(row.Discount));
-    const netSales = subtotal - discount;
+    const sales = txn.total || 0;
+    const discount = txn.discount || 0;
 
-    const unitCost = getCost(sku, getString(row.Item));
-    const totalCost = unitCost * quantity;
+    // Calculate cost from items
+    let itemCost = 0;
+    for (const item of txn.items) {
+      const sku = String(item.sku || "");
+      const name = String(item.productName || "");
+      const quantity = item.quantity || 0;
+      const unitCost = getCost(sku, name, costBySkuMap, costByNameMap);
+      itemCost += unitCost * quantity;
+    }
 
     if (!staffMap.has(employee)) {
       staffMap.set(employee, {
@@ -758,33 +633,9 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
     }
 
     const current = staffMap.get(employee)!;
-    current.sales += netSales;
-    current.cost += totalCost;
+    current.sales += sales;
+    current.cost += itemCost;
     current.discountGiven += discount;
-  }
-
-  // Third pass: count transactions per staff
-  for (const row of transactions) {
-    if (!isTotalRow(row)) continue;
-
-    const date = parseTime(getString(row.Time));
-    if (!date) continue;
-    if (from && date < from) continue;
-    if (to && date > to) continue;
-
-    const employee = getString(row.Employee);
-    if (!employee) continue;
-
-    if (!staffMap.has(employee)) {
-      staffMap.set(employee, {
-        sales: 0,
-        transactions: 0,
-        discountGiven: 0,
-        cost: 0,
-      });
-    }
-
-    const current = staffMap.get(employee)!;
     current.transactions += 1;
   }
 
@@ -822,7 +673,13 @@ const groupByStaff = (from: Date | null, to: Date | null) => {
   };
 };
 
-const groupBySupplier = (from: Date | null, to: Date | null) => {
+const groupBySupplier = (
+  from: Date | null,
+  to: Date | null,
+  transactionsData: any[],
+  costBySkuMap: Map<string, number>,
+  costByNameMap: Map<string, number>,
+) => {
   // Map to track data per supplier AND supply type combination
   const supplierTypeMap = new Map<
     string, // key: "supplier|supplyType"
@@ -837,80 +694,80 @@ const groupBySupplier = (from: Date | null, to: Date | null) => {
   >();
 
   // Aggregate suppliers with both subtotal and net sales
-  for (const row of transactions) {
-    if (!isItemRow(row)) continue;
+  for (const txn of transactionsData) {
+    if (txn.status !== "completed" || !txn.items || txn.items.length === 0)
+      continue;
 
-    const date = parseTime(getString(row.Time));
+    const date = parseTime(txn.timestamp);
     if (!date) continue;
     if (from && date < from) continue;
     if (to && date > to) continue;
 
-    const subtotal = getAmount(row.SubTotal);
-    const discount = Math.abs(getAmount(row.Discount));
-    const netSales = subtotal - discount; // Net sales after discount
-    const quantity = getQuantity(row.Quantity);
-    const sku = getString(row.SKU);
-    const name = getString(row.Item).trim(); // Trim whitespace
+    for (const item of txn.items) {
+      const subtotal = item.totalPrice || 0;
+      const quantity = item.quantity || 0;
+      const sku = String(item.sku || "");
+      const name = String(item.productName || "").trim();
 
-    // Find supplier from products data
-    // Try matching by: 1) SKU, 2) exact product name, 3) trimmed product name, 4) case-insensitive name
-    let product = sku && products.find((p) => p.SKU === sku);
+      // Find supplier from products data
+      let product = sku && products.find((p) => p.SKU === sku);
 
-    if (!product && name) {
-      // Try exact name match
-      product = products.find((p) => p["Product Name"] === name);
+      if (!product && name) {
+        product = products.find((p) => p["Product Name"] === name);
+      }
+
+      if (!product && name) {
+        product = products.find(
+          (p) => String(p["Product Name"]).trim() === name,
+        );
+      }
+
+      if (!product && name) {
+        product = products.find(
+          (p) =>
+            String(p["Product Name"]).toLowerCase().trim() ===
+            name.toLowerCase(),
+        );
+      }
+
+      const supplierName = product ? String(product.Supplier || "") : "";
+
+      // Normalize supplier name to extract base name and supply type
+      const { base: supplierBase, type: supplyTypeTag } =
+        normalizeSupplier(supplierName);
+      const displaySupplier =
+        supplierBase && supplierBase.trim() ? supplierBase : "(No supplier)";
+
+      // Determine supply type
+      const supplyType: "Consignment" | "Outright" = supplyTypeTag.includes(
+        "Consignment",
+      )
+        ? "Consignment"
+        : "Outright";
+
+      const unitCost = getCost(sku, name, costBySkuMap, costByNameMap);
+      const totalCost = unitCost * quantity;
+
+      // Create unique key for supplier + supply type combination
+      const key = `${displaySupplier}|${supplyType}`;
+
+      if (!supplierTypeMap.has(key)) {
+        supplierTypeMap.set(key, {
+          supplier: displaySupplier,
+          supplyType,
+          subtotal: 0,
+          total: 0,
+          quantity: 0,
+          cost: 0,
+        });
+      }
+
+      const current = supplierTypeMap.get(key)!;
+      current.subtotal += subtotal;
+      current.total += subtotal; // API already provides net total
+      current.quantity += quantity;
+      current.cost += totalCost;
     }
-
-    if (!product && name) {
-      // Try trimmed name match
-      product = products.find((p) => String(p["Product Name"]).trim() === name);
-    }
-
-    if (!product && name) {
-      // Try case-insensitive name match as fallback
-      product = products.find(
-        (p) =>
-          String(p["Product Name"]).toLowerCase().trim() === name.toLowerCase(),
-      );
-    }
-
-    const supplierName = product ? getString(product.Supplier || "") : "";
-
-    // Normalize supplier name to extract base name and supply type
-    const { base: supplierBase, type: supplyTypeTag } =
-      normalizeSupplier(supplierName);
-    const displaySupplier =
-      supplierBase && supplierBase.trim() ? supplierBase : "(No supplier)";
-
-    // Determine supply type: if has Consignment tag, it's Consignment, otherwise Outright
-    const supplyType: "Consignment" | "Outright" = supplyTypeTag.includes(
-      "Consignment",
-    )
-      ? "Consignment"
-      : "Outright";
-
-    const unitCost = getCost(sku, name);
-    const totalCost = unitCost * quantity;
-
-    // Create unique key for supplier + supply type combination
-    const key = `${displaySupplier}|${supplyType}`;
-
-    if (!supplierTypeMap.has(key)) {
-      supplierTypeMap.set(key, {
-        supplier: displaySupplier,
-        supplyType,
-        subtotal: 0,
-        total: 0,
-        quantity: 0,
-        cost: 0,
-      });
-    }
-
-    const current = supplierTypeMap.get(key)!;
-    current.subtotal += subtotal;
-    current.total += netSales;
-    current.quantity += quantity;
-    current.cost += totalCost;
   }
 
   const suppliers: Array<{
@@ -970,6 +827,16 @@ export default function SalesAssessmentClient() {
   const [timeView, setTimeView] = useState<"hourly" | "daily">("hourly");
   const reportRef = useRef<HTMLDivElement>(null);
 
+  // Fetch API data
+  const { data: apiProductsData, loading: productsLoading } = useProducts();
+  const { data: transactionsData, loading: transactionsLoading } =
+    useTransactions();
+
+  // Create cost maps from API products
+  const { costBySkuMap, costByNameMap } = useMemo(() => {
+    return createCostMaps(apiProductsData || []);
+  }, [apiProductsData]);
+
   const { from, to } = useMemo<{ from: Date | null; to: Date | null }>(() => {
     if (preset !== "custom") {
       const range = getPresetRange(preset);
@@ -990,11 +857,15 @@ export default function SalesAssessmentClient() {
     totalSales: dailyTotalSales,
     totalCost: dailyTotalCost,
     totalProfit: dailyTotalProfit,
-  } = useMemo(() => groupByDay(from, to), [from, to]);
+  } = useMemo(
+    () =>
+      groupByDay(from, to, transactionsData || [], costBySkuMap, costByNameMap),
+    [from, to, transactionsData, costBySkuMap, costByNameMap],
+  );
 
   const { hourly, dateCount, transactionCount, totalSales } = useMemo(
-    () => groupByHour(from, to),
-    [from, to],
+    () => groupByHour(from, to, transactionsData || []),
+    [from, to, transactionsData],
   );
 
   // Filter hourly data to show only operation hours (10 AM - 12 AM / 11 PM)
@@ -1004,7 +875,10 @@ export default function SalesAssessmentClient() {
     return hourly.filter((h) => h.hour >= START_HOUR && h.hour <= END_HOUR);
   }, [hourly]);
 
-  const { daysOfWeek } = useMemo(() => groupByDayOfWeek(from, to), [from, to]);
+  const { daysOfWeek } = useMemo(
+    () => groupByDayOfWeek(from, to, transactionsData || []),
+    [from, to, transactionsData],
+  );
 
   const {
     products,
@@ -1014,10 +888,23 @@ export default function SalesAssessmentClient() {
     totalProductSales,
     totalProductCost,
     totalProductProfit,
-  } = useMemo(() => groupByProduct(from, to), [from, to]);
+  } = useMemo(
+    () =>
+      groupByProduct(
+        from,
+        to,
+        transactionsData || [],
+        costBySkuMap,
+        costByNameMap,
+      ),
+    [from, to, transactionsData, costBySkuMap, costByNameMap],
+  );
 
   const { paymentPoints, totalPaymentSales, totalPaymentTransactions } =
-    useMemo(() => groupByPaymentType(from, to), [from, to]);
+    useMemo(
+      () => groupByPaymentType(from, to, transactionsData || []),
+      [from, to, transactionsData],
+    );
 
   const {
     staffPoints,
@@ -1025,7 +912,17 @@ export default function SalesAssessmentClient() {
     totalStaffTransactions,
     totalStaffCost,
     totalStaffProfit,
-  } = useMemo(() => groupByStaff(from, to), [from, to]);
+  } = useMemo(
+    () =>
+      groupByStaff(
+        from,
+        to,
+        transactionsData || [],
+        costBySkuMap,
+        costByNameMap,
+      ),
+    [from, to, transactionsData, costBySkuMap, costByNameMap],
+  );
 
   const {
     suppliers,
@@ -1035,7 +932,17 @@ export default function SalesAssessmentClient() {
     totalSupplierSales,
     totalSupplierCost,
     totalSupplierProfit,
-  } = useMemo(() => groupBySupplier(from, to), [from, to]);
+  } = useMemo(
+    () =>
+      groupBySupplier(
+        from,
+        to,
+        transactionsData || [],
+        costBySkuMap,
+        costByNameMap,
+      ),
+    [from, to, transactionsData, costBySkuMap, costByNameMap],
+  );
 
   const presets: { id: Preset; label: string }[] = [
     { id: "all", label: "All time" },
@@ -1119,6 +1026,18 @@ export default function SalesAssessmentClient() {
       setIsExporting(false);
     }
   };
+
+  // Show loading state while fetching
+  if (productsLoading || transactionsLoading) {
+    return (
+      <div className="mx-auto max-w-6xl px-6 py-10">
+        <div className="rounded-xl bg-white p-12 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading sales data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">

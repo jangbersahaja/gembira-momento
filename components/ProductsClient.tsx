@@ -1,5 +1,6 @@
 "use client";
 
+import products from "@/data/products";
 import {
   useInventory,
   useProducts,
@@ -20,6 +21,8 @@ interface ProductData {
   warningStock?: number;
   idealStock?: number;
   missingSkuWarning?: boolean; // Flag if product has no SKU
+  lastTransactionDate?: string; // Last transaction in "X days ago" format
+  supplier?: string; // Supplier name from products.ts
 }
 
 interface CategoryGroup {
@@ -34,10 +37,22 @@ interface CategoryGroup {
   products: ProductData[];
 }
 
+interface SupplierGroup {
+  supplier: string;
+  productCount: number;
+  totalRevenue: number;
+  totalCost: number;
+  totalUnits: number;
+  totalStockBalance: number;
+  totalStockValue: number;
+  products: ProductData[];
+}
+
 export default function ProductsClient() {
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [groupByCategory, setGroupByCategory] = useState(false);
+  const [groupBySupplier, setGroupBySupplier] = useState(false);
 
   // Get storeId from environment variable (set in .env.local)
   const storeId = process.env.NEXT_PUBLIC_STOREHUB_STORE_ID || "";
@@ -82,15 +97,23 @@ export default function ProductsClient() {
     }
 
     // First, count units sold per SKU from transactions
-    const skuCounts = new Map<string, { units: number; revenue: number }>();
+    const skuCounts = new Map<
+      string,
+      { units: number; revenue: number; lastDate?: string }
+    >();
     // Also track by name as fallback for products without SKU
-    const nameCounts = new Map<string, { units: number; revenue: number }>();
+    const nameCounts = new Map<
+      string,
+      { units: number; revenue: number; lastDate?: string }
+    >();
 
     for (const transaction of transactionsData) {
       // Only count item rows (where items exist and status is completed)
       if (!transaction.items || transaction.status !== "completed") {
         continue;
       }
+
+      const txDate = transaction.timestamp;
 
       for (const item of transaction.items) {
         const sku = item.sku || "";
@@ -103,6 +126,13 @@ export default function ProductsClient() {
             const current = skuCounts.get(sku) || { units: 0, revenue: 0 };
             current.units += qty;
             current.revenue += itemTotal;
+            // Update last transaction date
+            if (
+              !current.lastDate ||
+              new Date(txDate) > new Date(current.lastDate)
+            ) {
+              current.lastDate = txDate;
+            }
             skuCounts.set(sku, current);
           } else if (item.productName) {
             // Only use name if there's no SKU to avoid double-counting
@@ -112,6 +142,13 @@ export default function ProductsClient() {
             };
             current.units += qty;
             current.revenue += itemTotal;
+            // Update last transaction date
+            if (
+              !current.lastDate ||
+              new Date(txDate) > new Date(current.lastDate)
+            ) {
+              current.lastDate = txDate;
+            }
             nameCounts.set(item.productName, current);
           }
         }
@@ -134,6 +171,41 @@ export default function ProductsClient() {
       if (!sku && name) {
         // No SKU found, try matching by product name
         saleData = nameCounts.get(name) || { units: 0, revenue: 0 };
+      }
+
+      // Format last transaction date
+      let lastTransactionDate: string | undefined;
+      if (saleData.lastDate) {
+        const txDate = new Date(saleData.lastDate);
+        const today = new Date();
+        // Set Malaysia timezone
+        const malaysiaOffset = 8 * 60;
+        const utcOffset = today.getTimezoneOffset();
+        const offsetDifference = malaysiaOffset + utcOffset;
+        const malaysiaNow = new Date(
+          today.getTime() + offsetDifference * 60 * 1000,
+        );
+        malaysiaNow.setHours(0, 0, 0, 0);
+
+        const txDateLocal = new Date(
+          txDate.getTime() + offsetDifference * 60 * 1000,
+        );
+        txDateLocal.setHours(0, 0, 0, 0);
+
+        const daysAgo = Math.floor(
+          (malaysiaNow.getTime() - txDateLocal.getTime()) /
+            (1000 * 60 * 60 * 24),
+        );
+
+        if (daysAgo === 0) {
+          lastTransactionDate = "today";
+        } else if (daysAgo === 1) {
+          lastTransactionDate = "1 day ago";
+        } else if (daysAgo > 1) {
+          lastTransactionDate = `${daysAgo} days ago`;
+        } else {
+          lastTransactionDate = "future";
+        }
       }
 
       // Get stock balance from inventory API if available, fallback to product.quantity
@@ -160,6 +232,7 @@ export default function ProductsClient() {
         warningStock,
         idealStock,
         missingSkuWarning: !sku, // Flag products without SKU
+        lastTransactionDate,
       };
 
       const key = category;
@@ -218,6 +291,228 @@ export default function ProductsClient() {
       .filter((group) => group.products.length > 0);
   }, [searchTerm, productsData, transactionsData, inventoryData]);
 
+  // Create a supplier map from products.ts
+  const supplierMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const product of products) {
+      const sku = String(product.SKU || "");
+      const supplier = String(product.Supplier || "");
+      if (sku && supplier) {
+        map.set(sku, supplier);
+      }
+    }
+    return map;
+  }, []);
+
+  // Aggregate product data grouped by supplier
+  const supplierGroups = useMemo(() => {
+    if (!productsData || !transactionsData) return [];
+
+    // Create inventory map from API data (if available)
+    const inventoryMap = new Map<
+      string,
+      {
+        quantityOnHand: number;
+        warningStock?: number;
+        idealStock?: number;
+      }
+    >();
+
+    if (inventoryData && Array.isArray(inventoryData)) {
+      for (const item of inventoryData) {
+        inventoryMap.set(item.productId, {
+          quantityOnHand: item.quantityOnHand,
+          warningStock: item.warningStock,
+          idealStock: item.idealStock,
+        });
+      }
+    }
+
+    // First, count units sold per SKU from transactions
+    const skuCounts = new Map<
+      string,
+      { units: number; revenue: number; lastDate?: string }
+    >();
+    const nameCounts = new Map<
+      string,
+      { units: number; revenue: number; lastDate?: string }
+    >();
+
+    for (const transaction of transactionsData) {
+      if (!transaction.items || transaction.status !== "completed") {
+        continue;
+      }
+
+      const txDate = transaction.timestamp;
+
+      for (const item of transaction.items) {
+        const sku = item.sku || "";
+        const qty = item.quantity || 0;
+        const itemTotal = item.totalPrice || 0;
+
+        if (qty > 0) {
+          if (sku) {
+            const current = skuCounts.get(sku) || { units: 0, revenue: 0 };
+            current.units += qty;
+            current.revenue += itemTotal;
+            if (
+              !current.lastDate ||
+              new Date(txDate) > new Date(current.lastDate)
+            ) {
+              current.lastDate = txDate;
+            }
+            skuCounts.set(sku, current);
+          } else if (item.productName) {
+            const current = nameCounts.get(item.productName) || {
+              units: 0,
+              revenue: 0,
+            };
+            current.units += qty;
+            current.revenue += itemTotal;
+            if (
+              !current.lastDate ||
+              new Date(txDate) > new Date(current.lastDate)
+            ) {
+              current.lastDate = txDate;
+            }
+            nameCounts.set(item.productName, current);
+          }
+        }
+      }
+    }
+
+    // Group products by supplier
+    const groups = new Map<string, SupplierGroup>();
+
+    for (const product of productsData) {
+      const sku = String(product.sku || "");
+      const name = String(product.name || "");
+      const productId = product.id || "";
+      const cost = Number(product.cost) || 0;
+      const price = Number(product.unitPrice) || 0;
+
+      // Get supplier from map
+      const supplier = supplierMap.get(sku) || "Unknown Supplier";
+
+      // Try to get sales data by SKU first, fallback to name if no SKU
+      let saleData = skuCounts.get(sku) || { units: 0, revenue: 0 };
+      if (!sku && name) {
+        saleData = nameCounts.get(name) || { units: 0, revenue: 0 };
+      }
+
+      // Format last transaction date
+      let lastTransactionDate: string | undefined;
+      if (saleData.lastDate) {
+        const txDate = new Date(saleData.lastDate);
+        const today = new Date();
+        const malaysiaOffset = 8 * 60;
+        const utcOffset = today.getTimezoneOffset();
+        const offsetDifference = malaysiaOffset + utcOffset;
+        const malaysiaNow = new Date(
+          today.getTime() + offsetDifference * 60 * 1000,
+        );
+        malaysiaNow.setHours(0, 0, 0, 0);
+
+        const txDateLocal = new Date(
+          txDate.getTime() + offsetDifference * 60 * 1000,
+        );
+        txDateLocal.setHours(0, 0, 0, 0);
+
+        const daysAgo = Math.floor(
+          (malaysiaNow.getTime() - txDateLocal.getTime()) /
+            (1000 * 60 * 60 * 24),
+        );
+
+        if (daysAgo === 0) {
+          lastTransactionDate = "today";
+        } else if (daysAgo === 1) {
+          lastTransactionDate = "1 day ago";
+        } else if (daysAgo > 1) {
+          lastTransactionDate = `${daysAgo} days ago`;
+        } else {
+          lastTransactionDate = "future";
+        }
+      }
+
+      // Get stock balance from inventory API if available, fallback to product.quantity
+      let stockBalance = Number(product.quantity) || 0;
+      let warningStock: number | undefined;
+      let idealStock: number | undefined;
+
+      if (productId && inventoryMap.has(productId)) {
+        const invData = inventoryMap.get(productId)!;
+        stockBalance = invData.quantityOnHand;
+        warningStock = invData.warningStock;
+        idealStock = invData.idealStock;
+      }
+
+      const productData: ProductData = {
+        sku,
+        name,
+        cost,
+        price,
+        margin: price - cost,
+        unitsSold: saleData.units,
+        revenue: saleData.revenue,
+        stockBalance,
+        warningStock,
+        idealStock,
+        missingSkuWarning: !sku,
+        lastTransactionDate,
+        supplier,
+      };
+
+      if (!groups.has(supplier)) {
+        groups.set(supplier, {
+          supplier,
+          productCount: 0,
+          totalRevenue: 0,
+          totalCost: 0,
+          totalUnits: 0,
+          totalStockBalance: 0,
+          totalStockValue: 0,
+          products: [],
+        });
+      }
+
+      const group = groups.get(supplier)!;
+      group.productCount += 1;
+      group.totalRevenue += saleData.revenue;
+      group.totalCost += cost * saleData.units;
+      group.totalUnits += saleData.units;
+      group.totalStockBalance += productData.stockBalance;
+      group.totalStockValue += productData.stockBalance * cost;
+      group.products.push(productData);
+    }
+
+    // Sort suppliers alphabetically
+    const sortedGroups = Array.from(groups.values()).sort((a, b) =>
+      a.supplier.localeCompare(b.supplier),
+    );
+
+    // Sort products within each supplier by name
+    for (const group of sortedGroups) {
+      group.products.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    // Filter by search term
+    if (searchTerm.trim() === "") {
+      return sortedGroups;
+    }
+
+    const term = searchTerm.toLowerCase();
+    return sortedGroups
+      .map((group) => ({
+        ...group,
+        products: group.products.filter(
+          (p) =>
+            p.name.toLowerCase().includes(term) ||
+            p.sku.toLowerCase().includes(term),
+        ),
+      }))
+      .filter((group) => group.products.length > 0);
+  }, [searchTerm, productsData, transactionsData, inventoryData, supplierMap]);
+
   const formatCurrency = (value: number) => {
     return value.toFixed(2);
   };
@@ -274,21 +569,56 @@ export default function ProductsClient() {
           </div>
 
           {/* Group Toggle */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setGroupByCategory(!groupByCategory)}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                groupByCategory
-                  ? "bg-blue-500 text-white hover:bg-blue-600"
-                  : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-              }`}
-            >
-              {groupByCategory ? "✓ Grouped by Category" : "Ungrouped"}
-            </button>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setGroupByCategory(!groupByCategory);
+                  setGroupBySupplier(false);
+                }}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  groupByCategory
+                    ? "bg-blue-500 text-white hover:bg-blue-600"
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
+              >
+                {groupByCategory ? "✓ By Category" : "By Category"}
+              </button>
+              <button
+                onClick={() => {
+                  setGroupBySupplier(!groupBySupplier);
+                  setGroupByCategory(false);
+                }}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  groupBySupplier
+                    ? "bg-green-500 text-white hover:bg-green-600"
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
+              >
+                {groupBySupplier ? "✓ By Supplier" : "By Supplier"}
+              </button>
+              <button
+                onClick={() => {
+                  setGroupByCategory(false);
+                  setGroupBySupplier(false);
+                }}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  !groupByCategory && !groupBySupplier
+                    ? "bg-purple-500 text-white hover:bg-purple-600"
+                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                }`}
+              >
+                {!groupByCategory && !groupBySupplier
+                  ? "✓ Ungrouped"
+                  : "Ungrouped"}
+              </button>
+            </div>
             <p className="text-sm text-gray-600">
               {groupByCategory
-                ? "Click to view all products ungrouped"
-                : "Click to group by category"}
+                ? "Grouped by category"
+                : groupBySupplier
+                  ? "Grouped by supplier"
+                  : "Showing all products ungrouped"}
             </p>
           </div>
         </div>
@@ -299,6 +629,149 @@ export default function ProductsClient() {
         {categoryGroups.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-600 text-lg">No products found</p>
+          </div>
+        ) : groupBySupplier ? (
+          // SUPPLIER GROUPED VIEW
+          <div className="space-y-6">
+            {supplierGroups.map((group) => (
+              <div
+                key={group.supplier}
+                className="border border-gray-200 rounded-lg overflow-hidden"
+              >
+                {/* Supplier Header - Clickable */}
+                <button
+                  onClick={() =>
+                    setExpandedCategory(
+                      expandedCategory === group.supplier
+                        ? null
+                        : group.supplier,
+                    )
+                  }
+                  className="w-full bg-linear-to-r from-green-50 to-green-100 px-4 sm:px-6 py-4 hover:from-green-100 hover:to-green-200 transition-colors text-left"
+                >
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                      <span
+                        className={`transform transition-transform ${
+                          expandedCategory === group.supplier
+                            ? "rotate-90"
+                            : "rotate-0"
+                        }`}
+                      >
+                        ▶
+                      </span>
+                      <div>
+                        <h2 className="font-bold text-lg text-green-700">
+                          {group.supplier}
+                        </h2>
+                        <p className="text-sm text-gray-600">
+                          {group.productCount} products • {group.totalUnits}{" "}
+                          units sold
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Summary Stats */}
+                    <div className="grid grid-cols-2 gap-3 sm:flex sm:gap-8 text-right">
+                      <div>
+                        <p className="text-xs text-gray-600 mb-1">Stock</p>
+                        <p className="font-semibold text-gray-900">
+                          {group.totalStockBalance}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-600 mb-1">
+                          Stock Value
+                        </p>
+                        <p className="font-semibold text-gray-900">
+                          RM {formatCurrency(group.totalStockValue)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Products List - Expandable */}
+                {expandedCategory === group.supplier && (
+                  <div className="bg-white border-t border-gray-200">
+                    <div className="divide-y divide-gray-200 max-h-96 overflow-auto">
+                      {/* Header Row */}
+                      <div className="min-w-275 px-4 sm:px-6 py-3 bg-gray-50 grid grid-cols-12 gap-3 sticky top-0 text-xs font-semibold text-gray-700">
+                        <div className="col-span-1">SKU</div>
+                        <div className="col-span-3">Product Name</div>
+                        <div className="col-span-1 text-right">Price</div>
+                        <div className="col-span-1 text-right">Cost</div>
+                        <div className="col-span-1 text-right">Margin %</div>
+                        <div className="col-span-1 text-right">Stocks</div>
+                        <div className="col-span-1 text-right">Units Sold</div>
+                        <div className="col-span-2 text-right">
+                          Last Transaction
+                        </div>
+                      </div>
+
+                      {/* Product Rows */}
+                      {group.products.map((product) => (
+                        <Link
+                          key={product.sku + product.name}
+                          href={`/products/${encodeURIComponent(product.sku)}`}
+                          className={`min-w-275 px-4 sm:px-6 py-3 grid grid-cols-12 gap-3 text-sm transition-colors ${
+                            product.missingSkuWarning
+                              ? "bg-orange-50 hover:bg-orange-100 border-l-2 border-orange-400"
+                              : product.unitsSold === 0
+                                ? "bg-yellow-50 hover:bg-yellow-100"
+                                : "hover:bg-gray-50"
+                          }`}
+                        >
+                          <div className="col-span-1 font-mono text-xs">
+                            {product.sku ? (
+                              <span className="text-gray-600">
+                                {product.sku}
+                              </span>
+                            ) : (
+                              <span className="text-orange-600 font-semibold"></span>
+                            )}
+                          </div>
+                          <div className="col-span-3 text-gray-900 truncate">
+                            <span className="hover:text-blue-600">
+                              {product.name}
+                            </span>
+                          </div>
+                          <div className="col-span-1 text-right text-gray-700">
+                            RM {formatCurrency(product.price)}
+                          </div>
+                          <div className="col-span-1 text-right text-gray-700">
+                            RM {formatCurrency(product.cost)}
+                          </div>
+                          <div
+                            className={`col-span-1 text-right font-semibold ${
+                              product.margin >= 0
+                                ? "text-green-700"
+                                : "text-red-700"
+                            }`}
+                          >
+                            {product.price > 0
+                              ? formatCurrency(
+                                  (product.margin / product.price) * 100,
+                                )
+                              : "0"}
+                            %
+                          </div>
+                          <div className="col-span-1 text-right font-semibold text-gray-900">
+                            {product.stockBalance || "—"}
+                          </div>
+                          <div className="col-span-1 text-right font-semibold">
+                            {product.unitsSold}
+                          </div>
+                          <div className="col-span-2 text-right text-gray-700">
+                            {product.lastTransactionDate || "—"}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         ) : groupByCategory ? (
           // GROUPED VIEW
@@ -362,31 +835,6 @@ export default function ProductsClient() {
                           RM {formatCurrency(group.totalStockValue)}
                         </p>
                       </div>
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">Revenue</p>
-                        <p className="font-semibold text-gray-900">
-                          RM {formatCurrency(group.totalRevenue)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">Cost</p>
-                        <p className="font-semibold text-gray-900">
-                          RM {formatCurrency(group.totalCost)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">Profit</p>
-                        <p
-                          className={`font-semibold ${
-                            group.totalRevenue > 0
-                              ? "text-green-700"
-                              : "text-gray-900"
-                          }`}
-                        >
-                          RM{" "}
-                          {formatCurrency(group.totalRevenue - group.totalCost)}
-                        </p>
-                      </div>
                     </div>
                   </div>
                 </button>
@@ -396,17 +844,17 @@ export default function ProductsClient() {
                   <div className="bg-white border-t border-gray-200">
                     <div className="divide-y divide-gray-200 max-h-96 overflow-auto">
                       {/* Header Row */}
-                      <div className="min-w-[1100px] px-4 sm:px-6 py-3 bg-gray-50 grid grid-cols-15 gap-3 sticky top-0 text-xs font-semibold text-gray-700">
+                      <div className="min-w-275 px-4 sm:px-6 py-3 bg-gray-50 grid grid-cols-12 gap-3 sticky top-0 text-xs font-semibold text-gray-700">
                         <div className="col-span-1">SKU</div>
                         <div className="col-span-3">Product Name</div>
-                        <div className="col-span-1 text-right">Stock</div>
-                        <div className="col-span-1 text-right">Stock Value</div>
-                        <div className="col-span-1 text-right">Cost</div>
                         <div className="col-span-1 text-right">Price</div>
-                        <div className="col-span-1 text-right">Margin</div>
+                        <div className="col-span-1 text-right">Cost</div>
+                        <div className="col-span-1 text-right">Margin %</div>
+                        <div className="col-span-1 text-right">Stocks</div>
                         <div className="col-span-1 text-right">Units Sold</div>
-                        <div className="col-span-2 text-right">Revenue</div>
-                        <div className="col-span-2 text-right">Profit</div>
+                        <div className="col-span-2 text-right">
+                          Last Transaction
+                        </div>
                       </div>
 
                       {/* Product Rows */}
@@ -414,7 +862,7 @@ export default function ProductsClient() {
                         <Link
                           key={product.sku + product.name}
                           href={`/products/${encodeURIComponent(product.sku)}`}
-                          className={`min-w-[1100px] px-4 sm:px-6 py-3 grid grid-cols-15 gap-3 text-sm transition-colors ${
+                          className={`min-w-275 px-4 sm:px-6 py-3 grid grid-cols-12 gap-3 text-sm transition-colors ${
                             product.missingSkuWarning
                               ? "bg-orange-50 hover:bg-orange-100 border-l-2 border-orange-400"
                               : product.unitsSold === 0
@@ -436,20 +884,11 @@ export default function ProductsClient() {
                               {product.name}
                             </span>
                           </div>
-                          <div className="col-span-1 text-right font-semibold text-gray-900">
-                            {product.stockBalance || "—"}
-                          </div>
-                          <div className="col-span-1 text-right font-semibold text-gray-700">
-                            RM{" "}
-                            {formatCurrency(
-                              product.stockBalance * product.cost,
-                            )}
+                          <div className="col-span-1 text-right text-gray-700">
+                            RM {formatCurrency(product.price)}
                           </div>
                           <div className="col-span-1 text-right text-gray-700">
                             RM {formatCurrency(product.cost)}
-                          </div>
-                          <div className="col-span-1 text-right text-gray-700">
-                            RM {formatCurrency(product.price)}
                           </div>
                           <div
                             className={`col-span-1 text-right font-semibold ${
@@ -458,31 +897,21 @@ export default function ProductsClient() {
                                 : "text-red-700"
                             }`}
                           >
-                            RM {formatCurrency(product.margin)}
+                            {product.price > 0
+                              ? formatCurrency(
+                                  (product.margin / product.price) * 100,
+                                )
+                              : "0"}
+                            %
+                          </div>
+                          <div className="col-span-1 text-right font-semibold text-gray-900">
+                            {product.stockBalance || "—"}
                           </div>
                           <div className="col-span-1 text-right font-semibold">
                             {product.unitsSold}
                           </div>
-                          <div className="col-span-2 text-right font-semibold text-blue-700">
-                            RM {formatCurrency(product.revenue)}
-                          </div>
-                          <div
-                            className={`col-span-2 text-right font-semibold ${
-                              product.unitsSold === 0
-                                ? "text-gray-400"
-                                : product.revenue -
-                                      product.cost * product.unitsSold >
-                                    0
-                                  ? "text-green-700"
-                                  : "text-red-700"
-                            }`}
-                          >
-                            {product.unitsSold === 0
-                              ? "—"
-                              : `RM ${formatCurrency(
-                                  product.revenue -
-                                    product.cost * product.unitsSold,
-                                )}`}
+                          <div className="col-span-2 text-right text-gray-700">
+                            {product.lastTransactionDate || "—"}
                           </div>
                         </Link>
                       ))}
@@ -494,20 +923,18 @@ export default function ProductsClient() {
           </div>
         ) : (
           // FLAT LIST VIEW (UNGROUPED)
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="border border-gray-200 rounded-lg overflow-x-auto">
             <div className="divide-y divide-gray-200 max-h-full">
               {/* Header Row */}
-              <div className="min-w-[1100px] px-4 sm:px-6 py-3 bg-gray-50 grid grid-cols-15 gap-3 sticky top-0 text-xs font-semibold text-gray-700">
+              <div className="min-w-275 px-4 sm:px-6 py-3 bg-gray-50 grid grid-cols-12 gap-3 sticky top-0 text-xs font-semibold text-gray-700">
                 <div className="col-span-1">SKU</div>
                 <div className="col-span-3">Product Name</div>
-                <div className="col-span-1 text-right">Stock</div>
-                <div className="col-span-1 text-right">Stock Value</div>
-                <div className="col-span-1 text-right">Cost</div>
                 <div className="col-span-1 text-right">Price</div>
-                <div className="col-span-1 text-right">Margin</div>
+                <div className="col-span-1 text-right">Cost</div>
+                <div className="col-span-1 text-right">Margin %</div>
+                <div className="col-span-1 text-right">Stocks</div>
                 <div className="col-span-1 text-right">Units Sold</div>
-                <div className="col-span-2 text-right">Revenue</div>
-                <div className="col-span-2 text-right">Profit</div>
+                <div className="col-span-2 text-right">Last Transaction</div>
               </div>
 
               {/* All Products */}
@@ -516,7 +943,7 @@ export default function ProductsClient() {
                   <Link
                     key={product.sku + product.name}
                     href={`/products/${encodeURIComponent(product.sku)}`}
-                    className={`min-w-[1100px] px-4 sm:px-6 py-3 grid grid-cols-15 gap-3 text-sm transition-colors ${
+                    className={`min-w-275 px-4 sm:px-6 py-3 grid grid-cols-12 gap-3 text-sm transition-colors ${
                       product.missingSkuWarning
                         ? "bg-orange-50 hover:bg-orange-100 border-l-2 border-orange-400"
                         : product.unitsSold === 0
@@ -536,46 +963,30 @@ export default function ProductsClient() {
                         {product.name}
                       </span>
                     </div>
-                    <div className="col-span-1 text-right font-semibold text-gray-900">
-                      {product.stockBalance || "—"}
-                    </div>
-                    <div className="col-span-1 text-right font-semibold text-gray-700">
-                      RM {formatCurrency(product.stockBalance * product.cost)}
+                    <div className="col-span-1 text-right text-gray-700">
+                      RM {formatCurrency(product.price)}
                     </div>
                     <div className="col-span-1 text-right text-gray-700">
                       RM {formatCurrency(product.cost)}
-                    </div>
-                    <div className="col-span-1 text-right text-gray-700">
-                      RM {formatCurrency(product.price)}
                     </div>
                     <div
                       className={`col-span-1 text-right font-semibold ${
                         product.margin >= 0 ? "text-green-700" : "text-red-700"
                       }`}
                     >
-                      RM {formatCurrency(product.margin)}
+                      {product.price > 0
+                        ? formatCurrency((product.margin / product.price) * 100)
+                        : "0"}
+                      %
+                    </div>
+                    <div className="col-span-1 text-right font-semibold text-gray-900">
+                      {product.stockBalance || "—"}
                     </div>
                     <div className="col-span-1 text-right font-semibold">
                       {product.unitsSold}
                     </div>
-                    <div className="col-span-2 text-right font-semibold text-blue-700">
-                      RM {formatCurrency(product.revenue)}
-                    </div>
-                    <div
-                      className={`col-span-2 text-right font-semibold ${
-                        product.unitsSold === 0
-                          ? "text-gray-400"
-                          : product.revenue - product.cost * product.unitsSold >
-                              0
-                            ? "text-green-700"
-                            : "text-red-700"
-                      }`}
-                    >
-                      {product.unitsSold === 0
-                        ? "—"
-                        : `RM ${formatCurrency(
-                            product.revenue - product.cost * product.unitsSold,
-                          )}`}
+                    <div className="col-span-2 text-right text-gray-700">
+                      {product.lastTransactionDate || "—"}
                     </div>
                   </Link>
                 )),
