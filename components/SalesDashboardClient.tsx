@@ -101,31 +101,40 @@ export default function SalesDashboardClient() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Use actual current date
-        const today = new Date(2026, 6, 10); // July 10, 2026
+        // Get today's date in Malaysia timezone (GMT+8)
+        const utcNow = new Date();
+        const malaysiaOffset = 8 * 60; // GMT+8 in minutes
+        const utcOffset = utcNow.getTimezoneOffset(); // UTC offset in minutes
+        const offsetDifference = malaysiaOffset + utcOffset; // Difference from system time
+        const today = new Date(utcNow.getTime() + offsetDifference * 60 * 1000);
+
+        // Reset to midnight in Malaysia timezone
+        today.setHours(0, 0, 0, 0);
 
         // Calculate date range
-        const start = new Date(today);
-        const end = new Date(today);
-
-        let startDate = start;
-        let endDate = end;
+        let startDate = new Date(today);
+        let endDate = new Date(today);
 
         if (timePeriod === "week") {
-          startDate = new Date(start);
-          startDate.setDate(today.getDate() - today.getDay());
+          // Week: Sunday to Saturday in Malaysia timezone
+          const dayOfWeek = today.getDay();
+          startDate = new Date(today);
+          startDate.setDate(today.getDate() - dayOfWeek);
           endDate = new Date(startDate);
           endDate.setDate(startDate.getDate() + 6);
+          endDate.setHours(23, 59, 59, 999);
         } else if (timePeriod === "month") {
+          // Month: 1st to last day of month
           startDate = new Date(today);
           startDate.setDate(1);
-          endDate = new Date(today);
-          endDate.setDate(32);
-          endDate.setMonth(endDate.getMonth() + 1);
-          endDate.setDate(0);
+          endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+          endDate.setHours(23, 59, 59, 999);
+        } else {
+          // Today: end of today
+          endDate.setHours(23, 59, 59, 999);
         }
 
-        // Format dates for API
+        // Format dates for API (YYYY-MM-DD format)
         const formatDate = (d: Date) => {
           const year = d.getFullYear();
           const month = String(d.getMonth() + 1).padStart(2, "0");
