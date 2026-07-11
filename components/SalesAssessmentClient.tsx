@@ -1273,8 +1273,6 @@ export default function SalesAssessmentClient() {
                   <thead className="bg-gray-50 text-gray-700">
                     <tr>
                       <th className="px-4 py-3 font-medium">Date</th>
-                      <th className="px-4 py-3 font-medium">Opening</th>
-                      <th className="px-4 py-3 font-medium">Closing</th>
                       <th className="px-4 py-3 font-medium">First Txn</th>
                       <th className="px-4 py-3 font-medium">Last Txn</th>
                       <th className="px-4 py-3 font-medium">Transactions</th>
@@ -1288,8 +1286,6 @@ export default function SalesAssessmentClient() {
                     {daily.map(
                       ({
                         date,
-                        openingTime,
-                        closingTime,
                         firstTxnHour,
                         lastTxnHour,
                         transactions,
@@ -1301,12 +1297,6 @@ export default function SalesAssessmentClient() {
                         <tr key={date} className="hover:bg-gray-50">
                           <td className="px-4 py-3 font-medium text-gray-900">
                             {date}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {openingTime || "-"}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {closingTime || "-"}
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-600">
                             {firstTxnHour || "-"}
