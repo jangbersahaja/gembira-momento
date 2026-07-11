@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type TimePeriod = "today" | "week" | "month";
+type TimePeriod = "today" | "yesterday" | "week" | "month";
 
 interface TransactionMetrics {
   totalSales: number;
@@ -15,6 +15,12 @@ interface TransactionMetrics {
   };
 }
 
+interface ComparisonMetrics {
+  totalSalesChange: number;
+  totalTransactionsChange: number;
+  averageTransactionChange: number;
+}
+
 interface ProductSale {
   name: string;
   quantity: number;
@@ -22,11 +28,16 @@ interface ProductSale {
   sku: string;
 }
 
+interface StaffSession {
+  startTime: string;
+  endTime: string;
+}
+
 interface StaffMember {
   name: string;
   status: "on-duty" | "off-duty";
-  startTime?: string;
-  endTime?: string;
+  sessions: StaffSession[];
+  totalHours?: number;
 }
 
 interface Transaction {
@@ -115,11 +126,21 @@ export default function SalesDashboardClient() {
         let startDate = new Date(today);
         let endDate = new Date(today);
 
-        if (timePeriod === "week") {
-          // Week: Sunday to Saturday in Malaysia timezone
-          const dayOfWeek = today.getDay();
+        if (timePeriod === "yesterday") {
+          // Yesterday: full day, but query with buffer to +1 day for API compatibility
           startDate = new Date(today);
-          startDate.setDate(today.getDate() - dayOfWeek);
+          startDate.setDate(today.getDate() - 1);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(startDate);
+          endDate.setDate(endDate.getDate() + 1); // Include today to buffer the query
+          endDate.setHours(23, 59, 59, 999);
+        } else if (timePeriod === "week") {
+          // Week: Monday to Sunday in Malaysia timezone
+          const dayOfWeek = today.getDay();
+          const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // If Sunday (0), go back 6 days, else go back (day-1) days
+          startDate = new Date(today);
+          startDate.setDate(today.getDate() - daysToMonday);
+          startDate.setHours(0, 0, 0, 0);
           endDate = new Date(startDate);
           endDate.setDate(startDate.getDate() + 6);
           endDate.setHours(23, 59, 59, 999);
@@ -130,7 +151,11 @@ export default function SalesDashboardClient() {
           endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
           endDate.setHours(23, 59, 59, 999);
         } else {
-          // Today: end of today
+          // Today: full day, but query with buffer to +1 day for API compatibility
+          startDate = new Date(today);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(today);
+          endDate.setDate(today.getDate() + 1); // Include tomorrow to buffer the query
           endDate.setHours(23, 59, 59, 999);
         }
 
@@ -251,7 +276,13 @@ export default function SalesDashboardClient() {
   const filteredTransactions = useMemo<TransactionData[]>(() => {
     if (!Array.isArray(transactions)) return [];
 
-    const today = new Date(2026, 6, 10); // July 10, 2026
+    // Get today's date in Malaysia timezone (GMT+8)
+    const utcNow = new Date();
+    const malaysiaOffset = 8 * 60; // GMT+8 in minutes
+    const utcOffset = utcNow.getTimezoneOffset(); // UTC offset in minutes
+    const offsetDifference = malaysiaOffset + utcOffset; // Difference from system time
+    const today = new Date(utcNow.getTime() + offsetDifference * 60 * 1000);
+    today.setHours(0, 0, 0, 0);
 
     // If API data structure
     if (transactions.length > 0 && isApiTransaction(transactions[0])) {
@@ -264,10 +295,14 @@ export default function SalesDashboardClient() {
         if (!isApiTransaction(t)) return false;
         try {
           const txDate = new Date(t.timestamp);
+          // Convert to Malaysia timezone for comparison
+          const txMalaysiaTime = new Date(
+            txDate.getTime() + offsetDifference * 60 * 1000,
+          );
           const txDateOnly = new Date(
-            txDate.getFullYear(),
-            txDate.getMonth(),
-            txDate.getDate(),
+            txMalaysiaTime.getFullYear(),
+            txMalaysiaTime.getMonth(),
+            txMalaysiaTime.getDate(),
           );
           const todayOnly = new Date(
             today.getFullYear(),
@@ -277,16 +312,37 @@ export default function SalesDashboardClient() {
 
           if (timePeriod === "today") {
             return txDateOnly.getTime() === todayOnly.getTime();
+          } else if (timePeriod === "yesterday") {
+            const yesterday = new Date(todayOnly);
+            yesterday.setDate(today.getDate() - 1);
+            return txDateOnly.getTime() === yesterday.getTime();
           } else if (timePeriod === "week") {
-            const weekStart = new Date(todayOnly);
-            weekStart.setDate(today.getDate() - today.getDay());
+            // Calculate week start (Monday) and end (Sunday)
+            const dayOfWeek = today.getDay();
+            const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            const weekStart = new Date(today);
+            weekStart.setDate(today.getDate() - daysToMonday);
+            weekStart.setHours(0, 0, 0, 0);
             const weekEnd = new Date(weekStart);
             weekEnd.setDate(weekStart.getDate() + 6);
-            return txDateOnly >= weekStart && txDateOnly <= weekEnd;
+            weekEnd.setHours(23, 59, 59, 999);
+
+            // Compare dates
+            const weekStartOnly = new Date(
+              weekStart.getFullYear(),
+              weekStart.getMonth(),
+              weekStart.getDate(),
+            );
+            const weekEndOnly = new Date(
+              weekEnd.getFullYear(),
+              weekEnd.getMonth(),
+              weekEnd.getDate(),
+            );
+            return txDateOnly >= weekStartOnly && txDateOnly <= weekEndOnly;
           } else if (timePeriod === "month") {
             return (
-              txDate.getFullYear() === today.getFullYear() &&
-              txDate.getMonth() === today.getMonth()
+              txMalaysiaTime.getFullYear() === today.getFullYear() &&
+              txMalaysiaTime.getMonth() === today.getMonth()
             );
           }
           return true;
@@ -384,6 +440,164 @@ export default function SalesDashboardClient() {
     };
   }, [filteredTransactions]);
 
+  // Calculate previous period metrics for comparison
+  const comparisonMetrics = useMemo<ComparisonMetrics>(() => {
+    if (!Array.isArray(transactions)) {
+      return {
+        totalSalesChange: 0,
+        totalTransactionsChange: 0,
+        averageTransactionChange: 0,
+      };
+    }
+
+    // Helper function to calculate metrics for a date range
+    const calculateMetricsForPeriod = (
+      txs: TransactionData[],
+    ): TransactionMetrics => {
+      let cashSales = 0;
+      let cardSales = 0;
+      let qrSales = 0;
+
+      txs.forEach((t) => {
+        if (isApiTransaction(t)) {
+          if (t.paymentMethod === "cash") {
+            cashSales += t.total;
+          } else if (t.paymentMethod === "card") {
+            cardSales += t.total;
+          } else if (t.paymentMethod === "qr") {
+            qrSales += t.total;
+          }
+        } else if (isCsvTransaction(t)) {
+          if (t.Cash) cashSales += parseFloat(t.Cash || "0");
+          if (t["Credit Card"])
+            cardSales += parseFloat(t["Credit Card"] || "0");
+          if (t["Debit Card"]) cardSales += parseFloat(t["Debit Card"] || "0");
+          if (t.QR) qrSales += parseFloat(t.QR || "0");
+        }
+      });
+
+      const totalSales = cashSales + cardSales + qrSales;
+      return {
+        totalSales,
+        totalTransactions: txs.length,
+        averageTransaction: txs.length > 0 ? totalSales / txs.length : 0,
+        paymentBreakdown: { cash: cashSales, card: cardSales, qr: qrSales },
+      };
+    };
+
+    // Get today's date in Malaysia timezone (GMT+8)
+    const utcNow = new Date();
+    const malaysiaOffset = 8 * 60;
+    const utcOffset = utcNow.getTimezoneOffset();
+    const offsetDifference = malaysiaOffset + utcOffset;
+    const today = new Date(utcNow.getTime() + offsetDifference * 60 * 1000);
+    today.setHours(0, 0, 0, 0);
+
+    // Helper to filter transactions by date range
+    const filterByDateRange = (
+      startDate: Date,
+      endDate: Date,
+    ): TransactionData[] => {
+      return transactions.filter((t) => {
+        try {
+          const txDate = new Date(isApiTransaction(t) ? t.timestamp : t.Time);
+          const txMalaysiaTime = new Date(
+            txDate.getTime() + offsetDifference * 60 * 1000,
+          );
+          const txDateOnly = new Date(
+            txMalaysiaTime.getFullYear(),
+            txMalaysiaTime.getMonth(),
+            txMalaysiaTime.getDate(),
+          );
+          const startOnly = new Date(
+            startDate.getFullYear(),
+            startDate.getMonth(),
+            startDate.getDate(),
+          );
+          const endOnly = new Date(
+            endDate.getFullYear(),
+            endDate.getMonth(),
+            endDate.getDate(),
+          );
+
+          if (
+            isApiTransaction(t) &&
+            (t.status === "cancelled" || t.total <= 0)
+          ) {
+            return false;
+          }
+          if (isCsvTransaction(t) && t.Is_Cancelled === "True") {
+            return false;
+          }
+
+          return txDateOnly >= startOnly && txDateOnly <= endOnly;
+        } catch {
+          return false;
+        }
+      });
+    };
+
+    let previousTxs: TransactionData[] = [];
+
+    if (timePeriod === "today") {
+      // Previous period: yesterday
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      previousTxs = filterByDateRange(yesterday, yesterday);
+    } else if (timePeriod === "yesterday") {
+      // Previous period: 2 days ago
+      const dayBefore = new Date(today);
+      dayBefore.setDate(today.getDate() - 2);
+      previousTxs = filterByDateRange(dayBefore, dayBefore);
+    } else if (timePeriod === "week") {
+      // Previous period: last week (Monday-Sunday)
+      const dayOfWeek = today.getDay();
+      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const currentWeekStart = new Date(today);
+      currentWeekStart.setDate(today.getDate() - daysToMonday);
+
+      const lastWeekEnd = new Date(currentWeekStart);
+      lastWeekEnd.setDate(currentWeekStart.getDate() - 1);
+      const lastWeekStart = new Date(lastWeekEnd);
+      lastWeekStart.setDate(lastWeekEnd.getDate() - 6);
+
+      previousTxs = filterByDateRange(lastWeekStart, lastWeekEnd);
+    } else if (timePeriod === "month") {
+      // Previous period: last month
+      const lastMonthStart = new Date(today);
+      lastMonthStart.setDate(1);
+      lastMonthStart.setMonth(today.getMonth() - 1);
+      const lastMonthEnd = new Date(today);
+      lastMonthEnd.setDate(0); // Last day of previous month
+
+      previousTxs = filterByDateRange(lastMonthStart, lastMonthEnd);
+    }
+
+    const previousMetrics = calculateMetricsForPeriod(previousTxs);
+    const currentMetrics = metrics;
+
+    // Calculate percentage changes
+    const calcChange = (current: number, previous: number): number => {
+      if (previous === 0) return current === 0 ? 0 : 100;
+      return ((current - previous) / previous) * 100;
+    };
+
+    return {
+      totalSalesChange: calcChange(
+        currentMetrics.totalSales,
+        previousMetrics.totalSales,
+      ),
+      totalTransactionsChange: calcChange(
+        currentMetrics.totalTransactions,
+        previousMetrics.totalTransactions,
+      ),
+      averageTransactionChange: calcChange(
+        currentMetrics.averageTransaction,
+        previousMetrics.averageTransaction,
+      ),
+    };
+  }, [transactions, timePeriod, metrics]);
+
   // Get top products
   const topProducts = useMemo<ProductSale[]>(() => {
     const productMap = new Map<
@@ -429,32 +643,98 @@ export default function SalesDashboardClient() {
         quantity: data.quantity,
         total: data.total,
       }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5);
+      .sort((a, b) => b.total - a.total);
   }, [filteredTransactions]);
 
   // Get staff on duty
   const staffOnDuty = useMemo<StaffMember[]>(() => {
-    if (!Array.isArray(shifts) || shifts.length === 0) return [];
+    if (!Array.isArray(shifts) || shifts.length === 0) {
+      return [];
+    }
 
     // API shifts structure
     if (shifts.length > 0 && isApiShift(shifts[0])) {
       const staffMap = new Map<string, StaffMember>();
 
+      // Determine the target date(s) to filter by
+      let targetDate: Date;
+      let filterStartTime: string | null = null;
+      let filterEndTime: string | null = null;
+
+      if (timePeriod === "today" || timePeriod === "yesterday") {
+        // Get today's or yesterday's date
+        const utcNow = new Date();
+        const malaysiaOffset = 8 * 60;
+        const utcOffset = utcNow.getTimezoneOffset();
+        const offsetDifference = malaysiaOffset + utcOffset;
+        const today = new Date(utcNow.getTime() + offsetDifference * 60 * 1000);
+        today.setHours(0, 0, 0, 0);
+
+        if (timePeriod === "yesterday") {
+          targetDate = new Date(today);
+          targetDate.setDate(today.getDate() - 1);
+        } else {
+          targetDate = today;
+        }
+
+        const dateStr = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, "0")}-${String(targetDate.getDate()).padStart(2, "0")}`;
+        filterStartTime = `${dateStr}T00:00:00`;
+        filterEndTime = `${dateStr}T23:59:59`;
+      }
+
       shifts.forEach((shift) => {
         if (isApiShift(shift) && shift.employeeId) {
-          // Include all shifts (scheduled, completed, or any status)
+          // Filter by date if viewing today/yesterday
+          if (filterStartTime && filterEndTime) {
+            if (
+              shift.startTime < filterStartTime ||
+              shift.startTime > filterEndTime
+            ) {
+              return; // Skip shifts outside the target date
+            }
+          }
+
           const empName = employees[shift.employeeId] || shift.employeeId;
-          staffMap.set(shift.employeeId, {
-            name: empName,
-            status: "on-duty",
-            startTime: shift.startTime,
-            endTime: shift.endTime,
-          });
+          const existing = staffMap.get(shift.employeeId);
+
+          if (existing) {
+            // Add session to existing staff member
+            existing.sessions.push({
+              startTime: shift.startTime,
+              endTime: shift.endTime,
+            });
+          } else {
+            // Create new staff member with first session
+            staffMap.set(shift.employeeId, {
+              name: empName,
+              status: "on-duty",
+              sessions: [
+                {
+                  startTime: shift.startTime,
+                  endTime: shift.endTime,
+                },
+              ],
+            });
+          }
         }
       });
 
-      return Array.from(staffMap.values());
+      const result = Array.from(staffMap.values()).map((staff) => {
+        // Calculate total hours for all sessions
+        const totalHours = staff.sessions.reduce((sum, session) => {
+          const start = new Date(session.startTime).getTime();
+          const end = new Date(session.endTime).getTime();
+          const hours = (end - start) / (1000 * 60 * 60);
+          return sum + hours;
+        }, 0);
+
+        return {
+          ...staff,
+          totalHours: Math.round(totalHours * 100) / 100, // Round to 2 decimals
+        };
+      });
+
+      return result;
     }
 
     // Legacy CSV data structure
@@ -502,28 +782,67 @@ export default function SalesDashboardClient() {
           if (shiftDate >= startDate && shiftDate <= endDate) {
             // Add opening staff
             if (shift["Open By"]) {
-              staffMap.set(shift["Open By"], {
-                name: shift["Open By"],
-                status: "on-duty",
-                startTime: shift["Open Time"],
-                endTime: shift["Close Time"],
-              });
+              const existing = staffMap.get(shift["Open By"]);
+              if (existing) {
+                existing.sessions.push({
+                  startTime: shift["Open Time"],
+                  endTime: shift["Close Time"],
+                });
+              } else {
+                staffMap.set(shift["Open By"], {
+                  name: shift["Open By"],
+                  status: "on-duty",
+                  sessions: [
+                    {
+                      startTime: shift["Open Time"],
+                      endTime: shift["Close Time"],
+                    },
+                  ],
+                });
+              }
             }
             // Add closing staff
             if (shift["Close By"] && shift["Close By"] !== shift["Open By"]) {
-              staffMap.set(shift["Close By"], {
-                name: shift["Close By"],
-                status: "on-duty",
-                startTime: shift["Open Time"],
-                endTime: shift["Close Time"],
-              });
+              const existing = staffMap.get(shift["Close By"]);
+              if (existing) {
+                existing.sessions.push({
+                  startTime: shift["Open Time"],
+                  endTime: shift["Close Time"],
+                });
+              } else {
+                staffMap.set(shift["Close By"], {
+                  name: shift["Close By"],
+                  status: "on-duty",
+                  sessions: [
+                    {
+                      startTime: shift["Open Time"],
+                      endTime: shift["Close Time"],
+                    },
+                  ],
+                });
+              }
             }
           }
         }
       });
     }
 
-    return Array.from(staffMap.values());
+    const result = Array.from(staffMap.values()).map((staff) => {
+      // Calculate total hours for all sessions
+      const totalHours = staff.sessions.reduce((sum, session) => {
+        const start = new Date(session.startTime).getTime();
+        const end = new Date(session.endTime).getTime();
+        const hours = (end - start) / (1000 * 60 * 60);
+        return sum + hours;
+      }, 0);
+
+      return {
+        ...staff,
+        totalHours: Math.round(totalHours * 100) / 100, // Round to 2 decimals
+      };
+    });
+    console.log("[staffOnDuty] CSV result:", result);
+    return result;
   }, [shifts, timePeriod, employees]);
 
   return (
@@ -545,19 +864,23 @@ export default function SalesDashboardClient() {
         <div className="flex items-center gap-4">
           <span className="font-semibold text-gray-700">Time Period:</span>
           <div className="flex gap-2">
-            {(["today", "week", "month"] as const).map((period) => (
-              <button
-                key={period}
-                onClick={() => setTimePeriod(period)}
-                className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                  timePeriod === period
-                    ? "bg-orange-500 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                {period.charAt(0).toUpperCase() + period.slice(1)}
-              </button>
-            ))}
+            {(["today", "yesterday", "week", "month"] as const).map(
+              (period) => (
+                <button
+                  key={period}
+                  onClick={() => setTimePeriod(period)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                    timePeriod === period
+                      ? "bg-orange-500 text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {period === "yesterday"
+                    ? "Yesterday"
+                    : period.charAt(0).toUpperCase() + period.slice(1)}
+                </button>
+              ),
+            )}
           </div>
         </div>
       </div>
@@ -571,8 +894,16 @@ export default function SalesDashboardClient() {
             <p className="text-3xl font-bold text-blue-600">
               {formatCurrency(metrics.totalSales)}
             </p>
-            <p className="text-xs text-gray-500 mt-2">
-              {metrics.totalTransactions} transactions
+            <p
+              className={`text-xs mt-2 font-semibold ${
+                comparisonMetrics.totalSalesChange >= 0
+                  ? "text-green-600"
+                  : "text-red-600"
+              }`}
+            >
+              {comparisonMetrics.totalSalesChange >= 0 ? "↑" : "↓"}{" "}
+              {Math.abs(comparisonMetrics.totalSalesChange).toFixed(1)}% vs last
+              period
             </p>
           </div>
 
@@ -581,7 +912,17 @@ export default function SalesDashboardClient() {
             <p className="text-3xl font-bold text-green-600">
               {formatCurrency(metrics.averageTransaction)}
             </p>
-            <p className="text-xs text-gray-500 mt-2">Per transaction</p>
+            <p
+              className={`text-xs mt-2 font-semibold ${
+                comparisonMetrics.averageTransactionChange >= 0
+                  ? "text-green-600"
+                  : "text-red-600"
+              }`}
+            >
+              {comparisonMetrics.averageTransactionChange >= 0 ? "↑" : "↓"}{" "}
+              {Math.abs(comparisonMetrics.averageTransactionChange).toFixed(1)}%
+              vs last period
+            </p>
           </div>
 
           <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
@@ -589,7 +930,17 @@ export default function SalesDashboardClient() {
             <p className="text-3xl font-bold text-purple-600">
               {metrics.totalTransactions}
             </p>
-            <p className="text-xs text-gray-500 mt-2">Total orders</p>
+            <p
+              className={`text-xs mt-2 font-semibold ${
+                comparisonMetrics.totalTransactionsChange >= 0
+                  ? "text-green-600"
+                  : "text-red-600"
+              }`}
+            >
+              {comparisonMetrics.totalTransactionsChange >= 0 ? "↑" : "↓"}{" "}
+              {Math.abs(comparisonMetrics.totalTransactionsChange).toFixed(1)}%
+              vs last period
+            </p>
           </div>
 
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-6">
@@ -700,14 +1051,24 @@ export default function SalesDashboardClient() {
                       <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm">
                         ✓
                       </div>
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          {staff.name}
-                        </p>
-                        {staff.startTime && (
-                          <p className="text-xs text-gray-500">
-                            {staff.startTime} - {staff.endTime}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-gray-900">
+                            {staff.name}
                           </p>
+                          <span className="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded">
+                            {staff.totalHours || 0}h
+                          </span>
+                        </div>
+                        {staff.sessions && staff.sessions.length > 0 && (
+                          <div className="text-xs text-gray-500 space-y-1 mt-2">
+                            {staff.sessions.map((session, idx) => (
+                              <div key={idx}>
+                                {formatTimestamp(session.startTime)} -{" "}
+                                {formatTimestamp(session.endTime)}
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -803,7 +1164,7 @@ export default function SalesDashboardClient() {
                               {t["Receipt Number"]}
                             </td>
                             <td className="px-4 py-3 text-gray-700">
-                              {t.Time}
+                              {formatTimestamp(t.Time)}
                             </td>
                             <td className="px-4 py-3 text-gray-700">
                               {t.Item || "-"}
