@@ -30,7 +30,7 @@ interface ProductSale {
 
 interface StaffSession {
   startTime: string;
-  endTime: string;
+  endTime: string | null;
 }
 
 interface StaffMember {
@@ -723,13 +723,21 @@ export default function SalesDashboardClient() {
         // Calculate total hours for all sessions
         const totalHours = staff.sessions.reduce((sum, session) => {
           const start = new Date(session.startTime).getTime();
-          const end = new Date(session.endTime).getTime();
+          const end = session.endTime
+            ? new Date(session.endTime).getTime()
+            : start;
           const hours = (end - start) / (1000 * 60 * 60);
-          return sum + hours;
+          return sum + (hours > 0 ? hours : 0);
         }, 0);
+
+        // Check if staff is currently active (has a session without endTime)
+        const isCurrentlyActive = staff.sessions.some(
+          (session) => !session.endTime,
+        );
 
         return {
           ...staff,
+          status: isCurrentlyActive ? "on-duty" : "off-duty",
           totalHours: Math.round(totalHours * 100) / 100, // Round to 2 decimals
         };
       });
@@ -846,74 +854,77 @@ export default function SalesDashboardClient() {
   }, [shifts, timePeriod, employees]);
 
   return (
-    <div className="w-full bg-white min-h-screen">
-      {/* Header */}
-      <div className="bg-linear-to-r from-orange-500 to-amber-500 px-6 py-12">
-        <div className="mx-auto max-w-7xl">
-          <h1 className="text-4xl font-bold text-white mb-2">
-            Sales Dashboard
-          </h1>
-          <p className="text-orange-50">
-            Monitor transactions, products sold, and staff on duty
-          </p>
-        </div>
-      </div>
+    <div className="w-full bg-gray-50 min-h-screen">
+      {/* Compact Header */}
+      <div className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
+        <div className="mx-auto max-w-7xl px-4 md:px-6 py-3 md:py-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-6">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
+                Sales Dashboard
+              </h1>
+              <p className="text-xs md:text-sm text-gray-500 mt-0.5">
+                {new Date().toLocaleDateString("en-MY", {
+                  weekday: "short",
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </p>
+            </div>
 
-      {/* Time Period Selector */}
-      <div className="mx-auto max-w-7xl px-6 py-8 border-b border-gray-200">
-        <div className="flex items-center gap-4">
-          <span className="font-semibold text-gray-700">Time Period:</span>
-          <div className="flex gap-2">
-            {(["today", "yesterday", "week", "month"] as const).map(
-              (period) => (
-                <button
-                  key={period}
-                  onClick={() => setTimePeriod(period)}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                    timePeriod === period
-                      ? "bg-orange-500 text-white"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                >
-                  {period === "yesterday"
-                    ? "Yesterday"
-                    : period.charAt(0).toUpperCase() + period.slice(1)}
-                </button>
-              ),
-            )}
+            {/* Time Period Selector - Compact */}
+            <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-lg">
+              {(["today", "yesterday", "week", "month"] as const).map(
+                (period) => (
+                  <button
+                    key={period}
+                    onClick={() => setTimePeriod(period)}
+                    className={`px-2.5 md:px-3 py-1.5 rounded-md font-medium transition-all text-xs md:text-sm ${
+                      timePeriod === period
+                        ? "bg-orange-500 text-white shadow-sm"
+                        : "text-gray-600 hover:bg-white hover:text-gray-900"
+                    }`}
+                  >
+                    {period === "yesterday"
+                      ? "Yest."
+                      : period.charAt(0).toUpperCase() + period.slice(1)}
+                  </button>
+                ),
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="mx-auto max-w-7xl px-6 py-8">
-        {/* Key Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <p className="text-gray-600 text-sm mb-2">Total Sales</p>
-            <p className="text-3xl font-bold text-blue-600">
+      <div className="mx-auto max-w-7xl px-4 md:px-6 py-4 md:py-6">
+        {/* Key Metrics - Compact Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
+            <p className="text-gray-500 text-xs font-medium mb-1">Total Sales</p>
+            <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
               {formatCurrency(metrics.totalSales)}
             </p>
             <p
-              className={`text-xs mt-2 font-semibold ${
+              className={`text-xs font-semibold ${
                 comparisonMetrics.totalSalesChange >= 0
                   ? "text-green-600"
                   : "text-red-600"
               }`}
             >
               {comparisonMetrics.totalSalesChange >= 0 ? "↑" : "↓"}{" "}
-              {Math.abs(comparisonMetrics.totalSalesChange).toFixed(1)}% vs last
-              period
+              {Math.abs(comparisonMetrics.totalSalesChange).toFixed(1)}%
             </p>
           </div>
 
-          <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-            <p className="text-gray-600 text-sm mb-2">Average Transaction</p>
-            <p className="text-3xl font-bold text-green-600">
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
+            <p className="text-gray-500 text-xs font-medium mb-1">Avg. Transaction</p>
+            <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
               {formatCurrency(metrics.averageTransaction)}
             </p>
             <p
-              className={`text-xs mt-2 font-semibold ${
+              className={`text-xs font-semibold ${
                 comparisonMetrics.averageTransactionChange >= 0
                   ? "text-green-600"
                   : "text-red-600"
@@ -921,17 +932,16 @@ export default function SalesDashboardClient() {
             >
               {comparisonMetrics.averageTransactionChange >= 0 ? "↑" : "↓"}{" "}
               {Math.abs(comparisonMetrics.averageTransactionChange).toFixed(1)}%
-              vs last period
             </p>
           </div>
 
-          <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
-            <p className="text-gray-600 text-sm mb-2">Transactions</p>
-            <p className="text-3xl font-bold text-purple-600">
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
+            <p className="text-gray-500 text-xs font-medium mb-1">Transactions</p>
+            <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
               {metrics.totalTransactions}
             </p>
             <p
-              className={`text-xs mt-2 font-semibold ${
+              className={`text-xs font-semibold ${
                 comparisonMetrics.totalTransactionsChange >= 0
                   ? "text-green-600"
                   : "text-red-600"
@@ -939,89 +949,78 @@ export default function SalesDashboardClient() {
             >
               {comparisonMetrics.totalTransactionsChange >= 0 ? "↑" : "↓"}{" "}
               {Math.abs(comparisonMetrics.totalTransactionsChange).toFixed(1)}%
-              vs last period
             </p>
           </div>
 
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-6">
-            <p className="text-gray-600 text-sm mb-2">Staff On Duty</p>
-            <p className="text-3xl font-bold text-amber-600">
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
+            <p className="text-gray-500 text-xs font-medium mb-1">Staff On Duty</p>
+            <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
               {staffOnDuty.length}
             </p>
-            <p className="text-xs text-gray-500 mt-2">Active staff members</p>
+            <p className="text-xs text-gray-500">
+              {staffOnDuty.filter((s) => s.status === "on-duty").length} active
+            </p>
           </div>
         </div>
 
-        {/* Payment Breakdown */}
-        <div className="bg-white border border-gray-200 rounded-lg p-6 mb-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">
-            Payment Method Breakdown
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <p className="text-gray-600 text-sm mb-1">Cash</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {formatCurrency(metrics.paymentBreakdown.cash)}
-                </p>
-              </div>
-              <div className="text-3xl">💵</div>
+        {/* Payment Breakdown - Compact */}
+        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">
+            Payment Breakdown
+          </h3>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-lg p-3 border border-blue-200">
+              <p className="text-gray-600 text-xs font-medium mb-1">Cash</p>
+              <p className="text-lg font-bold text-blue-900">
+                {formatCurrency(metrics.paymentBreakdown.cash)}
+              </p>
             </div>
 
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <p className="text-gray-600 text-sm mb-1">Card</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {formatCurrency(metrics.paymentBreakdown.card)}
-                </p>
-              </div>
-              <div className="text-3xl">💳</div>
+            <div className="bg-linear-to-br from-green-50 to-green-100 rounded-lg p-3 border border-green-200">
+              <p className="text-gray-600 text-xs font-medium mb-1">Card</p>
+              <p className="text-lg font-bold text-green-900">
+                {formatCurrency(metrics.paymentBreakdown.card)}
+              </p>
             </div>
 
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <p className="text-gray-600 text-sm mb-1">QR Code</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {formatCurrency(metrics.paymentBreakdown.qr)}
-                </p>
-              </div>
-              <div className="text-3xl">📱</div>
+            <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-lg p-3 border border-purple-200">
+              <p className="text-gray-600 text-xs font-medium mb-1">QR Code</p>
+              <p className="text-lg font-bold text-purple-900">
+                {formatCurrency(metrics.paymentBreakdown.qr)}
+              </p>
             </div>
           </div>
         </div>
 
         {/* Top Products and Staff */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           {/* Top Products */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              Top Selling Products
-            </h2>
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">
+              Top Products
+            </h3>
             {topProducts.length > 0 ? (
-              <div className="space-y-4">
-                {topProducts.map((product, idx) => (
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
+                {topProducts.slice(0, 10).map((product, idx) => (
                   <div
                     key={product.sku}
-                    className="flex items-center justify-between border-b border-gray-200 pb-3 last:border-0"
+                    className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0 hover:bg-gray-50 p-1.5 rounded transition"
                   >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="inline-block w-6 h-6 bg-orange-500 text-white rounded-full text-center text-xs font-bold">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="shrink-0 w-5 h-5 bg-orange-500 text-white rounded-full text-center text-xs font-bold">
                           {idx + 1}
                         </span>
-                        <p className="font-medium text-gray-900 text-sm">
+                        <p className="font-medium text-gray-900 text-xs truncate">
                           {product.name}
                         </p>
                       </div>
-                      <p className="text-xs text-gray-500">
-                        SKU: {product.sku}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-gray-900">
+                      <p className="text-xs text-gray-400 mt-0.5">
                         {product.quantity.toFixed(0)} units
                       </p>
-                      <p className="text-xs text-gray-600">
+                    </div>
+                    <div className="text-right ml-2 shrink-0">
+                      <p className="font-semibold text-gray-900 text-xs">
                         {formatCurrency(product.total)}
                       </p>
                     </div>
@@ -1029,165 +1028,258 @@ export default function SalesDashboardClient() {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500 text-center py-8">
-                No sales data available for this period
+              <p className="text-gray-400 text-center py-4 text-xs">
+                No sales data
               </p>
             )}
           </div>
 
           {/* Staff On Duty */}
-          <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">
               Staff On Duty
-            </h2>
+            </h3>
             {staffOnDuty.length > 0 ? (
-              <div className="space-y-3">
-                {staffOnDuty.map((staff) => (
-                  <div
-                    key={staff.name}
-                    className="flex items-center justify-between bg-gray-50 p-3 rounded-lg"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm">
-                        ✓
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-gray-900">
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
+                {staffOnDuty.map((staff) => {
+                  const isActive = staff.status === "on-duty";
+                  return (
+                    <div
+                      key={staff.name}
+                      className={`flex items-center justify-between p-2 rounded-lg transition ${
+                        isActive
+                          ? "bg-green-50 border border-green-200"
+                          : "bg-gray-50 border border-gray-200"
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <div
+                            className={`shrink-0 w-4 h-4 rounded-full ${
+                              isActive ? "bg-green-500" : "bg-gray-300"
+                            }`}
+                          />
+                          <p className="font-medium text-gray-900 text-xs truncate">
                             {staff.name}
                           </p>
-                          <span className="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded">
+                          <span className="text-xs text-gray-500">
                             {staff.totalHours || 0}h
                           </span>
                         </div>
-                        {staff.sessions && staff.sessions.length > 0 && (
-                          <div className="text-xs text-gray-500 space-y-1 mt-2">
-                            {staff.sessions.map((session, idx) => (
-                              <div key={idx}>
-                                {formatTimestamp(session.startTime)} -{" "}
-                                {formatTimestamp(session.endTime)}
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
+                      <span
+                        className={`text-xs font-semibold px-2 py-0.5 rounded-md shrink-0 ml-1 ${
+                          isActive
+                            ? "bg-green-100 text-green-800"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {isActive ? "Active" : "Off"}
+                      </span>
                     </div>
-                    <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded">
-                      Active
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
-              <p className="text-gray-500 text-center py-8">
-                No staff recorded for this period
+              <p className="text-gray-400 text-center py-4 text-xs">
+                No staff
               </p>
             )}
           </div>
         </div>
 
         {/* Recent Transactions */}
-        <div className="bg-white border border-gray-200 rounded-lg p-6 mt-8">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">
             Recent Transactions
-          </h2>
+          </h3>
           {filteredTransactions.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="text-left px-4 py-3 font-semibold text-gray-900">
-                      Receipt #
-                    </th>
-                    <th className="text-left px-4 py-3 font-semibold text-gray-900">
-                      Time
-                    </th>
-                    <th className="text-left px-4 py-3 font-semibold text-gray-900">
-                      Product
-                    </th>
-                    <th className="text-left px-4 py-3 font-semibold text-gray-900">
-                      Qty
-                    </th>
-                    <th className="text-left px-4 py-3 font-semibold text-gray-900">
-                      Amount
-                    </th>
-                    <th className="text-left px-4 py-3 font-semibold text-gray-900">
-                      Employee
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredTransactions
-                    .slice()
-                    .reverse()
-                    .map((t, idx) => {
-                      if (isApiTransaction(t)) {
-                        // Show each item as a separate row for multi-item transactions
-                        return t.items.map((item, itemIdx) => (
-                          <tr
-                            key={`${idx}-${itemIdx}`}
-                            className="border-b border-gray-200 hover:bg-gray-50"
-                          >
-                            <td className="px-4 py-3 font-mono text-gray-900">
-                              {itemIdx === 0 ? t.receiptNumber : ""}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {itemIdx === 0
-                                ? formatTimestamp(t.timestamp)
-                                : ""}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {item.productName}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {item.quantity}
-                            </td>
-                            <td className="px-4 py-3 font-semibold text-gray-900">
-                              {formatCurrency(item.totalPrice)}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {itemIdx === 0
-                                ? t.employeeId
-                                  ? employees[t.employeeId] || t.employeeId
-                                  : "-"
-                                : ""}
-                            </td>
-                          </tr>
-                        ));
-                      } else if (isCsvTransaction(t)) {
-                        return (
-                          <tr
-                            key={idx}
-                            className="border-b border-gray-200 hover:bg-gray-50"
-                          >
-                            <td className="px-4 py-3 font-mono text-gray-900">
-                              {t["Receipt Number"]}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {formatTimestamp(t.Time)}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">
+            <>
+              {/* Table view for desktop */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                        Receipt #
+                      </th>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                        Time
+                      </th>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                        Product
+                      </th>
+                      <th className="text-center px-3 py-2 font-semibold text-gray-700">
+                        Qty
+                      </th>
+                      <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                        Amount
+                      </th>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                        Employee
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredTransactions
+                      .slice()
+                      .reverse()
+                      .slice(0, 15)
+                      .map((t, idx) => {
+                        if (isApiTransaction(t)) {
+                          return t.items.map((item, itemIdx) => (
+                            <tr
+                              key={`${idx}-${itemIdx}`}
+                              className="hover:bg-gray-50 transition"
+                            >
+                              <td className="px-3 py-2 font-mono text-gray-900">
+                                {itemIdx === 0 ? t.receiptNumber : ""}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">
+                                {itemIdx === 0
+                                  ? formatTimestamp(t.timestamp)
+                                  : ""}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">
+                                {item.productName}
+                              </td>
+                              <td className="px-3 py-2 text-center text-gray-600">
+                                {item.quantity}
+                              </td>
+                              <td className="px-3 py-2 font-semibold text-gray-900 text-right">
+                                {formatCurrency(item.totalPrice)}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">
+                                {itemIdx === 0
+                                  ? t.employeeId
+                                    ? employees[t.employeeId] || t.employeeId
+                                    : "-"
+                                  : ""}
+                              </td>
+                            </tr>
+                          ));
+                        } else if (isCsvTransaction(t)) {
+                          return (
+                            <tr
+                              key={idx}
+                              className="hover:bg-gray-50 transition"
+                            >
+                              <td className="px-3 py-2 font-mono text-gray-900">
+                                {t["Receipt Number"]}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">
+                                {formatTimestamp(t.Time)}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">
+                                {t.Item || "-"}
+                              </td>
+                              <td className="px-3 py-2 text-center text-gray-600">
+                                {t.Quantity}
+                              </td>
+                              <td className="px-3 py-2 font-semibold text-gray-900 text-right">
+                                {formatCurrency(parseFloat(t.SubTotal || "0"))}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">
+                                {t.Employee}
+                              </td>
+                            </tr>
+                          );
+                        }
+                      })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Card view for mobile */}
+              <div className="md:hidden space-y-2 max-h-96 overflow-y-auto">
+                {filteredTransactions
+                  .slice()
+                  .reverse()
+                  .slice(0, 15)
+                  .map((t, idx) => {
+                    if (isApiTransaction(t)) {
+                      return (
+                        <div
+                          key={`api-${idx}`}
+                          className="bg-gray-50 border border-gray-200 rounded p-2.5"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="text-xs font-mono text-gray-500">
+                                #{t.receiptNumber}
+                              </p>
+                              <p className="text-xs text-gray-600 mt-0.5">
+                                {formatTimestamp(t.timestamp)}
+                              </p>
+                            </div>
+                            <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded font-semibold">
+                              {formatCurrency(t.total)}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1 mb-2 border-t border-gray-200 pt-2">
+                            {t.items.map((item, itemIdx) => (
+                              <div key={itemIdx} className="text-xs">
+                                <p className="text-gray-900 font-medium">
+                                  {item.productName}
+                                </p>
+                                <p className="text-gray-500">
+                                  {item.quantity}x {formatCurrency(item.unitPrice)}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+
+                          <p className="text-xs text-gray-600 text-right border-t border-gray-200 pt-1">
+                            {t.employeeId
+                              ? employees[t.employeeId] || t.employeeId
+                              : "-"}
+                          </p>
+                        </div>
+                      );
+                    } else if (isCsvTransaction(t)) {
+                      return (
+                        <div
+                          key={`csv-${idx}`}
+                          className="bg-gray-50 border border-gray-200 rounded p-2.5"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="text-xs font-mono text-gray-500">
+                                #{t["Receipt Number"]}
+                              </p>
+                              <p className="text-xs text-gray-600 mt-0.5">
+                                {formatTimestamp(t.Time)}
+                              </p>
+                            </div>
+                            <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded font-semibold">
+                              {formatCurrency(
+                                parseFloat(t.SubTotal || "0"),
+                              )}
+                            </span>
+                          </div>
+
+                          <div className="border-t border-gray-200 pt-2 mb-2">
+                            <p className="text-gray-900 font-medium text-xs">
                               {t.Item || "-"}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {t.Quantity}
-                            </td>
-                            <td className="px-4 py-3 font-semibold text-gray-900">
-                              {formatCurrency(parseFloat(t.SubTotal || "0"))}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {t.Employee}
-                            </td>
-                          </tr>
-                        );
-                      }
-                    })}
-                </tbody>
-              </table>
-            </div>
+                            </p>
+                            <p className="text-gray-600 text-xs">
+                              Qty: {t.Quantity}
+                            </p>
+                          </div>
+
+                          <p className="text-xs text-gray-600 text-right">
+                            {t.Employee}
+                          </p>
+                        </div>
+                      );
+                    }
+                  })}
+              </div>
+            </>
           ) : (
-            <p className="text-gray-500 text-center py-8">
-              No transactions available for this period
+            <p className="text-gray-400 text-center py-6 text-xs">
+              No transactions
             </p>
           )}
         </div>
