@@ -289,93 +289,108 @@ export default function ProductDetailsPage({ params }: PageProps) {
   const supplierName = csvProduct?.Supplier || "Unknown";
 
   return (
-    <div className="w-full bg-white min-h-screen">
-      {/* Header */}
-      <div className="mx-auto max-w-7xl px-6 py-12 border-b border-gray-200">
-        <button
-          onClick={() => router.back()}
-          className="mb-6 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-        >
-          ← Back
-        </button>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div>
-            <h1 className="text-4xl font-bold text-slate-900 mb-2">
+    <div className="w-full bg-gray-50 min-h-screen">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
+        <div className="mx-auto max-w-7xl px-4 md:px-6 py-3 md:py-4 flex items-center justify-between gap-4">
+          <button
+            onClick={() => router.back()}
+            className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shrink-0"
+          >
+            ← Back
+          </button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg md:text-xl font-bold text-gray-900 truncate">
               {apiProduct.name}
             </h1>
-            <p className="text-lg text-gray-600">SKU: {apiProduct.sku}</p>
-          </div>
-
-          <div className="md:text-right">
-            <div className="text-sm text-gray-500 mb-2">Category</div>
-            <p className="text-xl font-semibold text-slate-900">
-              {apiProduct.category || "Uncategorized"}
-            </p>
-          </div>
-
-          <div className="md:text-right">
-            <div className="text-sm text-gray-500 mb-2">Supplier</div>
-            <p className="text-xl font-semibold text-slate-900">
-              {supplierName}
+            <p className="text-xs md:text-sm text-gray-600 truncate">
+              SKU: {apiProduct.sku}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="mx-auto max-w-7xl px-6 py-12">
-        {/* Product Info Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-          <div className="rounded-lg border bg-blue-50 p-4">
-            <div className="text-sm font-medium text-gray-700 mb-1">Price</div>
-            <div className="text-2xl font-bold text-blue-700">
+      {/* Main Content */}
+      <div className="mx-auto max-w-7xl px-4 md:px-6 py-4 md:py-6">
+        {/* Product Summary Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+            <p className="text-gray-600 text-xs font-medium mb-1">Category</p>
+            <p className="text-sm md:text-base font-semibold text-gray-900 truncate">
+              {apiProduct.category || "Uncategorized"}
+            </p>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+            <p className="text-gray-600 text-xs font-medium mb-1">Supplier</p>
+            <p className="text-sm md:text-base font-semibold text-gray-900 truncate">
+              {supplierName}
+            </p>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+            <p className="text-gray-600 text-xs font-medium mb-1">Price</p>
+            <p className="text-base md:text-lg font-bold text-blue-600">
               RM {formatCurrency(Number(apiProduct.unitPrice) || 0)}
-            </div>
+            </p>
           </div>
 
-          <div className="rounded-lg border bg-red-50 p-4">
-            <div className="text-sm font-medium text-gray-700 mb-1">Cost</div>
-            <div className="text-2xl font-bold text-red-700">
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+            <p className="text-gray-600 text-xs font-medium mb-1">Cost</p>
+            <p className="text-base md:text-lg font-bold text-red-600">
               RM {formatCurrency(Number(apiProduct.cost) || 0)}
-            </div>
-          </div>
-
-          <div className="rounded-lg border bg-green-50 p-4">
-            <div className="text-sm font-medium text-gray-700 mb-1">
-              Unit Margin
-            </div>
-            <div className="text-2xl font-bold text-green-700">
-              RM{" "}
-              {formatCurrency(
-                (Number(apiProduct.unitPrice) || 0) -
-                  (Number(apiProduct.cost) || 0),
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-lg border bg-purple-50 p-4">
-            <div className="text-sm font-medium text-gray-700 mb-1">Stock</div>
-            <div className="text-2xl font-bold text-purple-700">
-              {inventory?.quantityOnHand ?? "—"}
-            </div>
-            <div className="text-xs text-gray-500 mt-2">units</div>
-          </div>
-
-          <div className="rounded-lg border bg-orange-50 p-4">
-            <div className="text-sm font-medium text-gray-700 mb-1">
-              Last Transaction
-            </div>
-            <div className="text-2xl font-bold text-orange-700">
-              {productMetrics?.lastTransactionDate ?? "—"}
-            </div>
+            </p>
           </div>
         </div>
 
-        {/* Restocking Suggestion Alert */}
+        {/* Stock & Performance Overview */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+            <p className="text-gray-600 text-xs font-medium mb-2">
+              Current Stock
+            </p>
+            <p className="text-2xl md:text-3xl font-bold text-gray-900">
+              {inventory?.quantityOnHand ?? "—"}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">units on hand</p>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+            <p className="text-gray-600 text-xs font-medium mb-2">Total Sold</p>
+            <p className="text-2xl md:text-3xl font-bold text-gray-900">
+              {productMetrics
+                ? formatNumber(productMetrics.totalQuantity)
+                : "—"}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">units</p>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+            <p className="text-gray-600 text-xs font-medium mb-2">
+              Total Revenue
+            </p>
+            <p className="text-lg md:text-2xl font-bold text-green-600">
+              RM{" "}
+              {productMetrics
+                ? formatCurrency(productMetrics.totalRevenue)
+                : "—"}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">net sales</p>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+            <p className="text-gray-600 text-xs font-medium mb-2">Margin</p>
+            <p className="text-lg md:text-2xl font-bold text-blue-600">
+              {productMetrics ? `${productMetrics.margin}%` : "—"}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">profit margin</p>
+          </div>
+        </div>
+
+        {/* Restocking Alert */}
         {productMetrics?.restockingSuggestion && (
           <div
-            className={`mb-8 rounded-lg p-6 border-l-4 ${
+            className={`mb-6 rounded-lg p-4 md:p-5 border-l-4 ${
               productMetrics.restockingSuggestion.urgency === "critical"
                 ? "bg-red-50 border-red-500"
                 : productMetrics.restockingSuggestion.urgency === "high"
@@ -385,10 +400,10 @@ export default function ProductDetailsPage({ params }: PageProps) {
                     : "bg-blue-50 border-blue-500"
             }`}
           >
-            <div className="flex items-start justify-between gap-4">
-              <div>
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+              <div className="flex-1 min-w-0">
                 <div
-                  className={`text-lg font-semibold mb-2 ${
+                  className={`text-sm md:text-base font-bold mb-1 ${
                     productMetrics.restockingSuggestion.urgency === "critical"
                       ? "text-red-700"
                       : productMetrics.restockingSuggestion.urgency === "high"
@@ -399,36 +414,28 @@ export default function ProductDetailsPage({ params }: PageProps) {
                           : "text-blue-700"
                   }`}
                 >
-                  📦 Restocking Suggestion
+                  📦 {productMetrics.restockingSuggestion.reason}
                 </div>
-                <p className="text-gray-700 mb-3">
-                  {productMetrics.restockingSuggestion.reason}
-                </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">
-                      Quantity to Restock
-                    </p>
-                    <p className="text-2xl font-bold text-slate-900">
-                      {productMetrics.restockingSuggestion.quantity} units
-                    </p>
-                  </div>
+                <div className="text-xs md:text-sm text-gray-600">
+                  Suggest restocking{" "}
+                  <span className="font-semibold">
+                    {productMetrics.restockingSuggestion.quantity} units
+                  </span>
                   {productMetrics.restockingSuggestion.daysUntilStockout !==
                     undefined && (
-                    <div>
-                      <p className="text-sm text-gray-600 mb-1">
-                        Days Until Warning Level
-                      </p>
-                      <p className="text-2xl font-bold text-slate-900">
-                        ~{productMetrics.restockingSuggestion.daysUntilStockout}{" "}
-                        days
-                      </p>
-                    </div>
+                    <>
+                      {" "}
+                      (will reach warning in ~
+                      {
+                        productMetrics.restockingSuggestion.daysUntilStockout
+                      }{" "}
+                      days)
+                    </>
                   )}
                 </div>
               </div>
-              <div
-                className={`px-4 py-2 rounded-lg font-semibold text-sm whitespace-nowrap ${
+              <span
+                className={`text-xs font-bold px-3 py-1 rounded-full shrink-0 ${
                   productMetrics.restockingSuggestion.urgency === "critical"
                     ? "bg-red-100 text-red-700"
                     : productMetrics.restockingSuggestion.urgency === "high"
@@ -438,129 +445,181 @@ export default function ProductDetailsPage({ params }: PageProps) {
                         : "bg-blue-100 text-blue-700"
                 }`}
               >
-                {productMetrics.restockingSuggestion.urgency.toUpperCase()}{" "}
-                PRIORITY
-              </div>
+                {productMetrics.restockingSuggestion.urgency.toUpperCase()}
+              </span>
             </div>
           </div>
         )}
 
-        {/* Sales Performance */}
+        {/* Financial Breakdown */}
         {productMetrics && (
-          <>
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900 mb-4">
-                Sales Performance
-              </h2>
-              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                <div className="rounded-lg border bg-white p-4 shadow-sm">
-                  <div className="text-sm font-medium text-gray-500 mb-2">
-                    Total Sold
-                  </div>
-                  <div className="text-3xl font-bold text-slate-900">
-                    {formatNumber(productMetrics.totalQuantity)}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-2">units</div>
-                </div>
-
-                <div className="rounded-lg border bg-white p-4 shadow-sm">
-                  <div className="text-sm font-medium text-gray-500 mb-2">
-                    Total Revenue
-                  </div>
-                  <div className="text-3xl font-bold text-blue-600">
-                    RM {formatCurrency(productMetrics.totalRevenue)}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-2">net sales</div>
-                </div>
-
-                <div className="rounded-lg border bg-white p-4 shadow-sm">
-                  <div className="text-sm font-medium text-gray-500 mb-2">
-                    Total Cost
-                  </div>
-                  <div className="text-3xl font-bold text-red-600">
-                    RM {formatCurrency(productMetrics.totalCost)}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-2">COGS</div>
-                </div>
-
-                <div className="rounded-lg border bg-white p-4 shadow-sm">
-                  <div className="text-sm font-medium text-gray-500 mb-2">
-                    Total Profit
-                  </div>
-                  <div className="text-3xl font-bold text-green-600">
-                    RM {formatCurrency(productMetrics.profit)}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-2">
-                    {productMetrics.margin}% margin
-                  </div>
-                </div>
-
-                <div className="rounded-lg border bg-white p-4 shadow-sm">
-                  <div className="text-sm font-medium text-gray-500 mb-2">
-                    Avg Price
-                  </div>
-                  <div className="text-3xl font-bold text-slate-900">
-                    RM {productMetrics.avgPrice}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-2">per unit</div>
-                </div>
-              </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+            <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+              <p className="text-gray-600 text-xs font-medium mb-2">
+                Total Cost
+              </p>
+              <p className="text-lg md:text-xl font-bold text-red-600">
+                RM {formatCurrency(productMetrics.totalCost)}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">COGS</p>
             </div>
 
-            {/* Monthly Breakdown */}
-            {productMetrics.monthlyData.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+              <p className="text-gray-600 text-xs font-medium mb-2">
+                Total Profit
+              </p>
+              <p className="text-lg md:text-xl font-bold text-green-600">
+                RM {formatCurrency(productMetrics.profit)}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">net profit</p>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+              <p className="text-gray-600 text-xs font-medium mb-2">
+                Avg Price
+              </p>
+              <p className="text-lg md:text-xl font-bold text-gray-900">
+                RM {productMetrics.avgPrice}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">per unit</p>
+            </div>
+          </div>
+        )}
+
+        {/* Last Transaction */}
+        {productMetrics?.lastTransactionDate && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+            <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-slate-900 mb-4">
-                  Monthly Breakdown
-                </h2>
-                <div className="overflow-x-auto rounded-lg border">
-                  <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-                    <thead className="bg-gray-50 text-gray-700">
-                      <tr>
-                        <th className="px-6 py-3 font-medium">Month</th>
-                        <th className="px-6 py-3 font-medium">Units Sold</th>
-                        <th className="px-6 py-3 font-medium">Revenue RM</th>
-                        <th className="px-6 py-3 font-medium">Cost RM</th>
-                        <th className="px-6 py-3 font-medium">Profit RM</th>
-                        <th className="px-6 py-3 font-medium">Margin %</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {productMetrics.monthlyData.map(
-                        ({ month, qty, revenue, cost }) => {
-                          const profit = revenue - cost;
-                          const margin =
-                            revenue > 0
-                              ? ((profit / revenue) * 100).toFixed(1)
-                              : "0.0";
-                          return (
-                            <tr key={month} className="hover:bg-gray-50">
-                              <td className="px-6 py-3 font-medium text-gray-900">
-                                {month}
-                              </td>
-                              <td className="px-6 py-3">{qty}</td>
-                              <td className="px-6 py-3">
-                                RM {formatCurrency(revenue)}
-                              </td>
-                              <td className="px-6 py-3">
-                                RM {formatCurrency(cost)}
-                              </td>
-                              <td className="px-6 py-3 font-medium text-green-600">
-                                RM {formatCurrency(profit)}
-                              </td>
-                              <td className="px-6 py-3 text-gray-500">
-                                {margin}%
-                              </td>
-                            </tr>
-                          );
-                        },
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                <p className="text-gray-600 text-xs font-medium mb-1">
+                  Last Transaction
+                </p>
+                <p className="text-base md:text-lg font-semibold text-gray-900">
+                  {productMetrics.lastTransactionDate}
+                </p>
               </div>
-            )}
-          </>
+              <div className="text-2xl">🕐</div>
+            </div>
+          </div>
+        )}
+
+        {/* Monthly Breakdown Table */}
+        {productMetrics && productMetrics.monthlyData.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="px-4 md:px-6 py-4 border-b border-gray-200">
+              <h3 className="text-sm md:text-base font-bold text-gray-900">
+                Monthly Performance
+              </h3>
+            </div>
+
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-xs md:text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="text-left px-4 md:px-6 py-3 font-semibold text-gray-700">
+                      Month
+                    </th>
+                    <th className="text-right px-4 md:px-6 py-3 font-semibold text-gray-700">
+                      Units Sold
+                    </th>
+                    <th className="text-right px-4 md:px-6 py-3 font-semibold text-gray-700">
+                      Revenue
+                    </th>
+                    <th className="text-right px-4 md:px-6 py-3 font-semibold text-gray-700">
+                      Cost
+                    </th>
+                    <th className="text-right px-4 md:px-6 py-3 font-semibold text-gray-700">
+                      Profit
+                    </th>
+                    <th className="text-right px-4 md:px-6 py-3 font-semibold text-gray-700">
+                      Margin
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {productMetrics.monthlyData.map(
+                    ({ month, qty, revenue, cost }) => {
+                      const profit = revenue - cost;
+                      const margin =
+                        revenue > 0
+                          ? ((profit / revenue) * 100).toFixed(1)
+                          : "0.0";
+                      return (
+                        <tr key={month} className="hover:bg-gray-50">
+                          <td className="text-left px-4 md:px-6 py-3 font-medium text-gray-900">
+                            {month}
+                          </td>
+                          <td className="text-right px-4 md:px-6 py-3 text-gray-700">
+                            {qty}
+                          </td>
+                          <td className="text-right px-4 md:px-6 py-3 text-gray-700">
+                            RM {formatCurrency(revenue)}
+                          </td>
+                          <td className="text-right px-4 md:px-6 py-3 text-gray-700">
+                            RM {formatCurrency(cost)}
+                          </td>
+                          <td className="text-right px-4 md:px-6 py-3 font-medium text-green-600">
+                            RM {formatCurrency(profit)}
+                          </td>
+                          <td className="text-right px-4 md:px-6 py-3 text-gray-600">
+                            {margin}%
+                          </td>
+                        </tr>
+                      );
+                    },
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Card List */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {productMetrics.monthlyData.map(
+                ({ month, qty, revenue, cost }) => {
+                  const profit = revenue - cost;
+                  const margin =
+                    revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : "0.0";
+                  return (
+                    <div key={month} className="p-4 hover:bg-gray-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="font-semibold text-gray-900">{month}</p>
+                        <p className="text-sm font-bold text-green-600">
+                          RM {formatCurrency(profit)}
+                        </p>
+                      </div>
+                      <div className="space-y-1.5 text-xs text-gray-600">
+                        <div className="flex justify-between">
+                          <span>Units:</span>
+                          <span className="font-medium text-gray-900">
+                            {qty}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Revenue:</span>
+                          <span className="font-medium text-gray-900">
+                            RM {formatCurrency(revenue)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Cost:</span>
+                          <span className="font-medium text-gray-900">
+                            RM {formatCurrency(cost)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between pt-1.5 border-t border-gray-200">
+                          <span>Margin:</span>
+                          <span className="font-medium text-gray-900">
+                            {margin}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                },
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>

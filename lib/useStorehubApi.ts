@@ -5,7 +5,13 @@
 
 "use client";
 
-import { DependencyList, useCallback, useEffect, useState } from "react";
+import {
+  DependencyList,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 /**
  * Generic hook for fetching data from an API endpoint
@@ -60,19 +66,25 @@ export function useProducts(filters?: {
   limit?: number;
   offset?: number;
 }) {
+  // Memoize the filters to prevent unnecessary re-renders
+  const memoizedFilters = useMemo(
+    () => filters,
+    [filters?.category, filters?.sku, filters?.limit, filters?.offset],
+  );
+
   const fetchProducts = useCallback(async () => {
     const res = await fetch(
       `/api/storehub/products?${new URLSearchParams(
-        Object.entries(filters || {})
+        Object.entries(memoizedFilters || {})
           .filter(([, v]) => v !== undefined)
           .map(([k, v]) => [k, String(v)]),
       )}`,
     );
     if (!res.ok) throw new Error("Failed to fetch products");
     return res.json();
-  }, [filters]);
+  }, [memoizedFilters]);
 
-  return useApiData(fetchProducts, [filters]);
+  return useApiData(fetchProducts, [memoizedFilters]);
 }
 
 /**
@@ -84,19 +96,25 @@ export function useTransactions(filters?: {
   employeeId?: string;
   status?: string;
 }) {
+  // Memoize the filters to prevent unnecessary re-renders
+  const memoizedFilters = useMemo(
+    () => filters,
+    [filters?.from, filters?.to, filters?.employeeId, filters?.status],
+  );
+
   const fetchTransactions = useCallback(async () => {
     const res = await fetch(
       `/api/storehub/transactions?${new URLSearchParams(
-        Object.entries(filters || {})
+        Object.entries(memoizedFilters || {})
           .filter(([, v]) => v !== undefined)
           .map(([k, v]) => [k, String(v)]),
       )}`,
     );
     if (!res.ok) throw new Error("Failed to fetch transactions");
     return res.json();
-  }, [filters]);
+  }, [memoizedFilters]);
 
-  return useApiData(fetchTransactions, [filters]);
+  return useApiData(fetchTransactions, [memoizedFilters]);
 }
 
 /**
@@ -119,19 +137,22 @@ export function useInventory(storeId: string) {
  * Hook for fetching employees
  */
 export function useEmployees(filters?: { modifiedSince?: string }) {
+  // Memoize the filters to prevent unnecessary re-renders
+  const memoizedFilters = useMemo(() => filters, [filters?.modifiedSince]);
+
   const fetchEmployees = useCallback(async () => {
     const res = await fetch(
       `/api/storehub/employees?${new URLSearchParams(
-        Object.entries(filters || {})
+        Object.entries(memoizedFilters || {})
           .filter(([, v]) => v !== undefined)
           .map(([k, v]) => [k, String(v)]),
       )}`,
     );
     if (!res.ok) throw new Error("Failed to fetch employees");
     return res.json();
-  }, [filters]);
+  }, [memoizedFilters]);
 
-  return useApiData(fetchEmployees, [filters]);
+  return useApiData(fetchEmployees, [memoizedFilters]);
 }
 
 /**
@@ -156,19 +177,25 @@ export function useTimesheets(filters?: {
   from?: string;
   to?: string;
 }) {
+  // Memoize the filters to prevent unnecessary re-renders
+  const memoizedFilters = useMemo(
+    () => filters,
+    [filters?.storeId, filters?.employeeId, filters?.from, filters?.to],
+  );
+
   const fetchTimesheets = useCallback(async () => {
     const res = await fetch(
       `/api/storehub/timesheets?${new URLSearchParams(
-        Object.entries(filters || {})
+        Object.entries(memoizedFilters || {})
           .filter(([, v]) => v !== undefined)
           .map(([k, v]) => [k, String(v)]),
       )}`,
     );
     if (!res.ok) throw new Error("Failed to fetch timesheets");
     return res.json();
-  }, [filters]);
+  }, [memoizedFilters]);
 
-  return useApiData(fetchTimesheets, [filters]);
+  return useApiData(fetchTimesheets, [memoizedFilters]);
 }
 
 /**
@@ -180,19 +207,30 @@ export function useShifts(filters?: {
   endDate?: string;
   status?: string;
 }) {
+  // Memoize the filters to prevent unnecessary re-renders
+  const memoizedFilters = useMemo(
+    () => filters,
+    [
+      filters?.employeeId,
+      filters?.startDate,
+      filters?.endDate,
+      filters?.status,
+    ],
+  );
+
   const fetchShifts = useCallback(async () => {
     const res = await fetch(
       `/api/storehub/shifts?${new URLSearchParams(
-        Object.entries(filters || {})
+        Object.entries(memoizedFilters || {})
           .filter(([, v]) => v !== undefined)
           .map(([k, v]) => [k, String(v)]),
       )}`,
     );
     if (!res.ok) throw new Error("Failed to fetch shifts");
     return res.json();
-  }, [filters]);
+  }, [memoizedFilters]);
 
-  return useApiData(fetchShifts, [filters]);
+  return useApiData(fetchShifts, [memoizedFilters]);
 }
 
 /**

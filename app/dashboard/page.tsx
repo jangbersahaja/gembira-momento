@@ -5,7 +5,7 @@ import Link from "next/link";
 export default function DashboardPage() {
   const managementPages = [
     {
-      title: "Sales Dashboard",
+      title: "Live Monitor",
       description:
         "Real-time monitoring of transactions, products sold, and staff on duty",
       href: "/dashboard/sales-dashboard",
@@ -22,7 +22,7 @@ export default function DashboardPage() {
       iconBg: "bg-blue-100 text-blue-700",
     },
     {
-      title: "Sales Assessment",
+      title: "Sales Analytics",
       description:
         "Detailed sales breakdown by time, product, staff, and supplier",
       href: "/sales-assessment",
@@ -60,10 +60,10 @@ export default function DashboardPage() {
       icon: "💰",
     },
     {
-      id: "staff-performance",
-      label: "Staff Performance",
-      href: "/sales-assessment",
-      icon: "👥",
+      id: "live-monitor",
+      label: "Live Monitor",
+      href: "/dashboard/sales-dashboard",
+      icon: "📡",
     },
   ];
 
@@ -162,10 +162,10 @@ export default function DashboardPage() {
               </p>
             </div>
             <div>
-              <h4 className="font-semibold text-slate-900 mb-2">Security</h4>
+              <h4 className="font-semibold text-slate-900 mb-2">Navigation</h4>
               <p className="text-gray-600 text-sm">
-                Remember to logout when finished. Use the logout button in the
-                top-right corner.
+                Use the "Back to Shop" button in the header to return to the
+                public site anytime.
               </p>
             </div>
           </div>

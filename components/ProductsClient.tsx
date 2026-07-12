@@ -668,50 +668,127 @@ export default function ProductsClient() {
 
                 {/* Products */}
                 {expandedCategory === group.supplier && (
-                  <div className="border-t border-gray-200 divide-y divide-gray-100 max-h-80 overflow-y-auto">
-                    {group.products.map((product) => (
-                      <Link
-                        key={product.sku + product.name}
-                        href={`/products/${encodeURIComponent(product.sku)}`}
-                        className={`px-4 py-2.5 text-xs grid gap-2 transition-colors ${
-                          product.missingSkuWarning
-                            ? "bg-orange-50 hover:bg-orange-100"
-                            : product.unitsSold === 0
-                              ? "bg-yellow-50 hover:bg-yellow-100"
-                              : "hover:bg-gray-50"
-                        }`}
+                  <div className="md:border-t md:border-gray-200 md:divide-y md:divide-gray-100 md:max-h-80 md:overflow-y-auto">
+                    {/* Desktop Table */}
+                    <div className="hidden md:block">
+                      {/* Header */}
+                      <div
+                        className="grid gap-2 px-4 py-2.5 bg-gray-50 text-xs font-semibold text-gray-700 border-b border-gray-200"
                         style={{
                           gridTemplateColumns:
                             "minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(90px, 0.9fr)",
                         }}
                       >
-                        <div className="font-mono text-gray-600 truncate">
-                          {product.sku || "—"}
-                        </div>
-                        <div className="text-gray-900 truncate font-medium">
-                          {product.name}
-                        </div>
-                        <div className="text-right text-gray-700">
-                          RM {formatCurrency(product.price)}
-                        </div>
-                        <div className="text-right text-gray-600">
-                          RM {formatCurrency(product.cost)}
-                        </div>
-                        <div className="text-right text-gray-600 truncate">
-                          {product.stockBalance}
-                        </div>
-                        <div className="text-right font-semibold text-gray-900 truncate">
-                          {product.unitsSold}
-                        </div>
-                        <div className="text-right text-gray-600 truncate">
-                          {product.lastTransactionDate || "—"}
-                        </div>
-                      </Link>
-                    ))}
+                        <div>SKU</div>
+                        <div>Product</div>
+                        <div className="text-right">Price</div>
+                        <div className="text-right">Cost</div>
+                        <div className="text-right">Stock</div>
+                        <div className="text-right">Sold</div>
+                        <div className="text-right">Last Sale</div>
+                      </div>
+                      {/* Products */}
+                      {group.products.map((product) => (
+                        <Link
+                          key={product.sku + product.name}
+                          href={`/products/${encodeURIComponent(product.sku)}`}
+                          className={`grid gap-2 px-4 py-2.5 text-xs transition-colors border-b border-gray-100 ${
+                            product.missingSkuWarning
+                              ? "bg-orange-50 hover:bg-orange-100"
+                              : product.unitsSold === 0
+                                ? "bg-yellow-100 hover:bg-yellow-200"
+                                : "hover:bg-gray-50"
+                          }`}
+                          style={{
+                            gridTemplateColumns:
+                              "minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(90px, 0.9fr)",
+                          }}
+                        >
+                          <div className="font-mono text-gray-600 truncate">
+                            {product.sku || "—"}
+                          </div>
+                          <div className="text-gray-900 truncate font-medium">
+                            {product.name}
+                          </div>
+                          <div className="text-right text-gray-700">
+                            RM {formatCurrency(product.price)}
+                          </div>
+                          <div className="text-right text-gray-600">
+                            RM {formatCurrency(product.cost)}
+                          </div>
+                          <div className="text-right text-gray-700 font-medium">
+                            {product.stockBalance}
+                          </div>
+                          <div className="text-right text-gray-900 font-semibold">
+                            {product.unitsSold}
+                          </div>
+                          <div className="text-right text-gray-600 text-xs">
+                            {product.lastTransactionDate || "—"}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+
+                    {/* Mobile Card List */}
+                    <div className="md:hidden space-y-2 px-3 py-3">
+                      {group.products.map((product) => (
+                        <Link
+                          key={product.sku + product.name}
+                          href={`/products/${encodeURIComponent(product.sku)}`}
+                          className={`block p-3 rounded-lg transition-colors border ${
+                            product.missingSkuWarning
+                              ? "border-orange-200 bg-orange-50 hover:bg-orange-100"
+                              : product.unitsSold === 0
+                                ? "border-yellow-300 bg-yellow-100 hover:bg-yellow-200"
+                                : "border-gray-200 bg-white hover:bg-gray-50"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-2 mb-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-mono text-gray-500 text-xs">
+                                {product.sku || "—"}
+                              </div>
+                              <div className="text-gray-900 font-semibold truncate">
+                                {product.name}
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div className="text-gray-900 font-bold text-sm">
+                                {product.unitsSold}
+                              </div>
+                              <div className="text-gray-500 text-xs">sold</div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                            <div>
+                              <div className="text-gray-500">Price</div>
+                              <div className="text-gray-900 font-medium">
+                                RM {formatCurrency(product.price)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-gray-500">Cost</div>
+                              <div className="text-gray-700 font-medium">
+                                RM {formatCurrency(product.cost)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-gray-500">Stock</div>
+                              <div className="text-gray-700 font-medium">
+                                {product.stockBalance}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
+                            Last: {product.lastTransactionDate || "—"}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
-            ))}  
+            ))}
           </div>
         ) : groupByCategory ? (
           // CATEGORY GROUPED VIEW
@@ -765,60 +842,139 @@ export default function ProductsClient() {
 
                 {/* Products */}
                 {expandedCategory === group.category && (
-                  <div className="border-t border-gray-200 divide-y divide-gray-100 max-h-80 overflow-y-auto">
-                    {group.products.map((product) => (
-                      <Link
-                        key={product.sku + product.name}
-                        href={`/products/${encodeURIComponent(product.sku)}`}
-                        className={`px-4 py-2.5 text-xs grid gap-2 transition-colors ${
-                          product.missingSkuWarning
-                            ? "bg-orange-50 hover:bg-orange-100"
-                            : product.unitsSold === 0
-                              ? "bg-yellow-50 hover:bg-yellow-100"
-                              : "hover:bg-gray-50"
-                        }`}
+                  <div className="md:border-t md:border-gray-200 md:divide-y md:divide-gray-100 md:max-h-80 md:overflow-y-auto">
+                    {/* Desktop Table */}
+                    <div className="hidden md:block">
+                      {/* Header */}
+                      <div
+                        className="grid gap-2 px-4 py-2.5 bg-gray-50 text-xs font-semibold text-gray-700 border-b border-gray-200"
                         style={{
                           gridTemplateColumns:
                             "minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(90px, 0.9fr)",
                         }}
                       >
-                        <div className="font-mono text-gray-600 truncate">
-                          {product.sku || "—"}
-                        </div>
-                        <div className="text-gray-900 truncate font-medium">
-                          {product.name}
-                        </div>
-                        <div className="text-right text-gray-700">
-                          RM {formatCurrency(product.price)}
-                        </div>
-                        <div className="text-right text-gray-600">
-                          RM {formatCurrency(product.cost)}
-                        </div>
-                        <div className="text-right text-gray-600 truncate">
-                          {product.stockBalance}
-                        </div>
-                        <div className="text-right font-semibold text-gray-900 truncate">
-                          {product.unitsSold}
-                        </div>
-                        <div className="text-right text-gray-600 truncate">
-                          {product.lastTransactionDate || "—"}
-                        </div>
-                      </Link>
-                    ))}
+                        <div>SKU</div>
+                        <div>Product</div>
+                        <div className="text-right">Price</div>
+                        <div className="text-right">Cost</div>
+                        <div className="text-right">Stock</div>
+                        <div className="text-right">Sold</div>
+                        <div className="text-right">Last Sale</div>
+                      </div>
+                      {/* Products */}
+                      {group.products.map((product) => (
+                        <Link
+                          key={product.sku + product.name}
+                          href={`/products/${encodeURIComponent(product.sku)}`}
+                          className={`grid gap-2 px-4 py-2.5 text-xs transition-colors border-b border-gray-100 ${
+                            product.missingSkuWarning
+                              ? "bg-orange-50 hover:bg-orange-100"
+                              : product.unitsSold === 0
+                                ? "bg-yellow-100 hover:bg-yellow-200"
+                                : "hover:bg-gray-50"
+                          }`}
+                          style={{
+                            gridTemplateColumns:
+                              "minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(90px, 0.9fr)",
+                          }}
+                        >
+                          <div className="font-mono text-gray-600 truncate">
+                            {product.sku || "—"}
+                          </div>
+                          <div className="text-gray-900 truncate font-medium">
+                            {product.name}
+                          </div>
+                          <div className="text-right text-gray-700">
+                            RM {formatCurrency(product.price)}
+                          </div>
+                          <div className="text-right text-gray-600">
+                            RM {formatCurrency(product.cost)}
+                          </div>
+                          <div className="text-right text-gray-700 font-medium">
+                            {product.stockBalance}
+                          </div>
+                          <div className="text-right text-gray-900 font-semibold">
+                            {product.unitsSold}
+                          </div>
+                          <div className="text-right text-gray-600 text-xs">
+                            {product.lastTransactionDate || "—"}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+
+                    {/* Mobile Card List */}
+                    <div className="md:hidden space-y-2 px-3 py-3">
+                      {group.products.map((product) => (
+                        <Link
+                          key={product.sku + product.name}
+                          href={`/products/${encodeURIComponent(product.sku)}`}
+                          className={`block p-3 rounded-lg transition-colors border ${
+                            product.missingSkuWarning
+                              ? "border-orange-200 bg-orange-50 hover:bg-orange-100"
+                              : product.unitsSold === 0
+                                ? "border-yellow-300 bg-yellow-100 hover:bg-yellow-200"
+                                : "border-gray-200 bg-white hover:bg-gray-50"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-2 mb-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-mono text-gray-500 text-xs">
+                                {product.sku || "—"}
+                              </div>
+                              <div className="text-gray-900 font-semibold truncate">
+                                {product.name}
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div className="text-gray-900 font-bold text-sm">
+                                {product.unitsSold}
+                              </div>
+                              <div className="text-gray-500 text-xs">sold</div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                            <div>
+                              <div className="text-gray-500">Price</div>
+                              <div className="text-gray-900 font-medium">
+                                RM {formatCurrency(product.price)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-gray-500">Cost</div>
+                              <div className="text-gray-700 font-medium">
+                                RM {formatCurrency(product.cost)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-gray-500">Stock</div>
+                              <div className="text-gray-700 font-medium">
+                                {product.stockBalance}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
+                            Last: {product.lastTransactionDate || "—"}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
-            ))}  
+            ))}
           </div>
         ) : (
           // FLAT LIST VIEW
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <div className="divide-y divide-gray-100 max-h-screen overflow-y-auto">
-              {/* Header */}
+          <div className="md:bg-white md:border md:border-gray-200 md:rounded-lg md:overflow-hidden">
+            {/* Desktop Table */}
+            <div className="hidden md:block divide-y divide-gray-100 max-h-screen overflow-y-auto">
+              {/* Header - Desktop only */}
               <div
-                className="px-4 py-2.5 bg-gray-50 grid gap-2 sticky top-0 text-xs font-semibold text-gray-700"
+                className="grid gap-2 px-4 py-2.5 bg-gray-50 sticky top-0 z-10 text-xs font-semibold text-gray-700 border-b border-gray-200"
                 style={{
-                  gridTemplateColumns: "minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(90px, 0.9fr)"
+                  gridTemplateColumns:
+                    "minmax(60px, 0.6fr) minmax(140px, 1.4fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(50px, 0.5fr) minmax(50px, 0.5fr) minmax(80px, 0.8fr)",
                 }}
               >
                 <div>SKU</div>
@@ -830,21 +986,22 @@ export default function ProductsClient() {
                 <div className="text-right">Last Sale</div>
               </div>
 
-              {/* Products */}
+              {/* Desktop Products */}
               {categoryGroups.flatMap((group) =>
                 group.products.map((product) => (
                   <Link
                     key={product.sku + product.name}
                     href={`/products/${encodeURIComponent(product.sku)}`}
-                    className={`px-4 py-2.5 text-xs grid gap-2 transition-colors ${
+                    className={`grid gap-2 px-4 py-2.5 text-xs transition-colors border-b border-gray-100 ${
                       product.missingSkuWarning
                         ? "bg-orange-50 hover:bg-orange-100"
                         : product.unitsSold === 0
-                          ? "bg-yellow-50 hover:bg-yellow-100"
+                          ? "bg-yellow-100 hover:bg-yellow-200"
                           : "hover:bg-gray-50"
                     }`}
                     style={{
-                      gridTemplateColumns: "minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(90px, 0.9fr)"
+                      gridTemplateColumns:
+                        "minmax(60px, 0.6fr) minmax(140px, 1.4fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(50px, 0.5fr) minmax(50px, 0.5fr) minmax(80px, 0.8fr)",
                     }}
                   >
                     <div className="font-mono text-gray-600 truncate">
@@ -859,17 +1016,76 @@ export default function ProductsClient() {
                     <div className="text-right text-gray-600">
                       RM {formatCurrency(product.cost)}
                     </div>
-                    <div className="text-right text-gray-600 truncate">
+                    <div className="text-right text-gray-700 font-medium">
                       {product.stockBalance}
                     </div>
-                    <div className="text-right font-semibold text-gray-900 truncate">
+                    <div className="text-right text-gray-900 font-semibold">
                       {product.unitsSold}
                     </div>
-                    <div className="text-right text-gray-600 truncate">
+                    <div className="text-right text-gray-600 text-xs">
                       {product.lastTransactionDate || "—"}
                     </div>
                   </Link>
-                ))
+                )),
+              )}
+            </div>
+
+            {/* Mobile Card List */}
+            <div className="md:hidden space-y-2 px-3 py-3">
+              {categoryGroups.flatMap((group) =>
+                group.products.map((product) => (
+                  <Link
+                    key={product.sku + product.name}
+                    href={`/products/${encodeURIComponent(product.sku)}`}
+                    className={`block p-3 rounded-lg transition-colors border ${
+                      product.missingSkuWarning
+                        ? "border-orange-200 bg-orange-50 hover:bg-orange-100"
+                        : product.unitsSold === 0
+                          ? "border-yellow-300 bg-yellow-100 hover:bg-yellow-200"
+                          : "border-gray-200 bg-white hover:bg-gray-50"
+                    }`}
+                  >
+                    <div className="flex justify-between items-start gap-2 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-mono text-gray-500 text-xs">
+                          {product.sku || "—"}
+                        </div>
+                        <div className="text-gray-900 font-semibold truncate">
+                          {product.name}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-gray-900 font-bold text-sm">
+                          {product.unitsSold}
+                        </div>
+                        <div className="text-gray-500 text-xs">sold</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                      <div>
+                        <div className="text-gray-500">Price</div>
+                        <div className="text-gray-900 font-medium">
+                          RM {formatCurrency(product.price)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">Cost</div>
+                        <div className="text-gray-700 font-medium">
+                          RM {formatCurrency(product.cost)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">Stock</div>
+                        <div className="text-gray-700 font-medium">
+                          {product.stockBalance}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
+                      Last: {product.lastTransactionDate || "—"}
+                    </div>
+                  </Link>
+                )),
               )}
             </div>
           </div>

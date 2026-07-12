@@ -59,21 +59,6 @@ export default function ProtectedLayout({
 
   return (
     <div>
-      {/* Auth Header with Logout */}
-      <div className="fixed top-0 right-0 p-4 z-50">
-        <button
-          onClick={() => {
-            localStorage.removeItem("auth_token");
-            localStorage.removeItem("auth_time");
-            router.push("/login");
-            router.refresh();
-          }}
-          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
-        >
-          Logout
-        </button>
-      </div>
-
       {/* Page Content */}
       {children}
     </div>

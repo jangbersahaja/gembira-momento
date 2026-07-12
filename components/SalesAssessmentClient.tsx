@@ -1,6 +1,10 @@
 "use client";
 
-import { useProducts, useTransactions } from "@/lib/useStorehubApi";
+import {
+  useEmployees,
+  useProducts,
+  useTransactions,
+} from "@/lib/useStorehubApi";
 import { useMemo, useRef, useState } from "react";
 import products from "../data/products";
 import {
@@ -831,8 +835,24 @@ export default function SalesAssessmentClient() {
   const { data: apiProductsData, loading: productsLoading } = useProducts();
   const { data: transactionsData, loading: transactionsLoading } =
     useTransactions();
+  const { data: employeesData, loading: employeesLoading } = useEmployees();
 
-  // Create cost maps from API products
+  // Create employee name map from API employees
+  const employeeNameMap = useMemo(() => {
+    const nameMap = new Map<string, string>();
+    if (employeesData && Array.isArray(employeesData)) {
+      for (const employee of employeesData) {
+        if (employee.id) {
+          const fullName = [employee.firstName, employee.lastName]
+            .filter(Boolean)
+            .join(" ")
+            .trim();
+          nameMap.set(String(employee.id), fullName || String(employee.id));
+        }
+      }
+    }
+    return nameMap;
+  }, [employeesData]);
   const { costBySkuMap, costByNameMap } = useMemo(() => {
     return createCostMaps(apiProductsData || []);
   }, [apiProductsData]);
@@ -1040,1320 +1060,1297 @@ export default function SalesAssessmentClient() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
-      <div className="mb-4 flex items-center justify-end">
-        <button
-          type="button"
-          onClick={handleDownloadPdf}
-          disabled={isExporting}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
-        >
-          {isExporting ? "Preparing PDF..." : "Download PDF (A4)"}
-        </button>
+    <div className="min-h-screen bg-gray-50">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
+        <div className="mx-auto max-w-7xl px-4 md:px-6 py-3 md:py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-lg md:text-xl font-bold text-gray-900">
+                Sales Analytics
+              </h1>
+              <p className="text-xs md:text-sm text-gray-600 mt-0.5">
+                Comprehensive sales analysis and performance metrics
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={isExporting}
+              className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-300 transition-colors shrink-0"
+            >
+              {isExporting ? "Preparing..." : "📥 PDF"}
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div ref={reportRef} className="rounded-xl bg-white p-6 sm:p-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-semibold text-foreground">
-            Sales Assessment
-          </h1>
-          <p className="mt-2 text-sm text-gray-600 max-w-3xl">
-            Hourly overview for main sales transaction rows. Filter by date
-            range to narrow the report.
-          </p>
-        </div>
+      {/* Main Content */}
+      <div className="mx-auto max-w-7xl px-4 md:px-6 py-4 md:py-6">
+        <div ref={reportRef} className="space-y-6">
+          {/* Date Range Selector */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-5">
+            <p className="text-sm font-semibold text-gray-900 mb-3">
+              Filter by date
+            </p>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {presets.map(({ id, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setPreset(id)}
+                  className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-full border transition-colors ${
+                    preset === id
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "bg-white text-gray-700 border-gray-300 hover:border-blue-400"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
-        <div className="rounded-xl border bg-white p-5 shadow-sm mb-8">
-          <p className="text-sm font-medium text-gray-700 mb-3">Date range</p>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {presets.map(({ id, label }) => (
-              <button
-                key={id}
-                onClick={() => setPreset(id)}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium border transition-colors ${
-                  preset === id
-                    ? "bg-indigo-600 text-white border-indigo-600"
-                    : "bg-white text-gray-700 border-gray-300 hover:border-indigo-400 hover:text-indigo-600"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+            {preset === "custom" && (
+              <div className="flex flex-wrap gap-3 items-end">
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">
+                    From
+                  </label>
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    max={customTo || toInputDate(new Date())}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">
+                    To
+                  </label>
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    min={customFrom}
+                    max={toInputDate(new Date())}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                  />
+                </div>
+                {(customFrom || customTo) && (
+                  <button
+                    onClick={() => {
+                      setCustomFrom("");
+                      setCustomTo("");
+                    }}
+                    className="text-xs text-gray-500 hover:text-gray-700 underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+
+            {(from || to) && (
+              <p className="mt-3 text-xs text-gray-500">
+                <span className="font-medium text-gray-700">
+                  {from?.toLocaleDateString("en-MY", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  }) ?? "—"}
+                </span>
+                {" — "}
+                <span className="font-medium text-gray-700">
+                  {to?.toLocaleDateString("en-MY", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  }) ?? "—"}
+                </span>
+              </p>
+            )}
           </div>
 
-          {preset === "custom" && (
-            <div className="flex flex-wrap gap-4 items-center">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-gray-500">
-                  From
-                </label>
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  max={customTo || toInputDate(new Date())}
-                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-gray-500">To</label>
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  min={customFrom}
-                  max={toInputDate(new Date())}
-                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                />
-              </div>
-              {(customFrom || customTo) && (
+          {/* Tab Navigation */}
+          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: "daily", label: "📊 Daily Sales" },
+                { id: "time", label: "⏰ By Time" },
+                { id: "products", label: "📦 Products" },
+                { id: "payments", label: "💳 Payments" },
+                { id: "staff", label: "👥 Staff" },
+                { id: "supplier", label: "🏢 Suppliers" },
+              ].map(({ id, label }) => (
                 <button
-                  onClick={() => {
-                    setCustomFrom("");
-                    setCustomTo("");
-                  }}
-                  className="mt-4 text-xs text-gray-400 hover:text-gray-600 underline"
+                  key={id}
+                  onClick={() => setActiveTab(id as ViewTab)}
+                  className={`px-3 py-2 text-xs md:text-sm font-medium rounded-lg transition-colors border ${
+                    activeTab === id
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "bg-white text-gray-700 border-gray-300 hover:border-blue-400"
+                  }`}
                 >
-                  Clear
+                  {label}
                 </button>
-              )}
-            </div>
-          )}
-
-          {(from || to) && (
-            <p className="mt-3 text-xs text-gray-400">
-              Showing:{" "}
-              <span className="text-gray-600 font-medium">
-                {from?.toLocaleDateString("en-MY", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                }) ?? "—"}
-              </span>
-              {" → "}
-              <span className="text-gray-600 font-medium">
-                {to?.toLocaleDateString("en-MY", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                }) ?? "—"}
-              </span>
-            </p>
-          )}
-        </div>
-
-        <div className="mb-8 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab("daily")}
-            className={`rounded-lg px-4 py-2 text-sm font-medium border transition-colors ${
-              activeTab === "daily"
-                ? "bg-indigo-600 text-white border-indigo-600"
-                : "bg-white text-gray-700 border-gray-300 hover:border-indigo-400 hover:text-indigo-600"
-            }`}
-          >
-            Daily sales
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("time")}
-            className={`rounded-lg px-4 py-2 text-sm font-medium border transition-colors ${
-              activeTab === "time"
-                ? "bg-indigo-600 text-white border-indigo-600"
-                : "bg-white text-gray-700 border-gray-300 hover:border-indigo-400 hover:text-indigo-600"
-            }`}
-          >
-            Sales by time
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("products")}
-            className={`rounded-lg px-4 py-2 text-sm font-medium border transition-colors ${
-              activeTab === "products"
-                ? "bg-indigo-600 text-white border-indigo-600"
-                : "bg-white text-gray-700 border-gray-300 hover:border-indigo-400 hover:text-indigo-600"
-            }`}
-          >
-            Sales by products
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("payments")}
-            className={`rounded-lg px-4 py-2 text-sm font-medium border transition-colors ${
-              activeTab === "payments"
-                ? "bg-indigo-600 text-white border-indigo-600"
-                : "bg-white text-gray-700 border-gray-300 hover:border-indigo-400 hover:text-indigo-600"
-            }`}
-          >
-            Payment type
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("staff")}
-            className={`rounded-lg px-4 py-2 text-sm font-medium border transition-colors ${
-              activeTab === "staff"
-                ? "bg-indigo-600 text-white border-indigo-600"
-                : "bg-white text-gray-700 border-gray-300 hover:border-indigo-400 hover:text-indigo-600"
-            }`}
-          >
-            Staff performance
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("supplier")}
-            className={`rounded-lg px-4 py-2 text-sm font-medium border transition-colors ${
-              activeTab === "supplier"
-                ? "bg-indigo-600 text-white border-indigo-600"
-                : "bg-white text-gray-700 border-gray-300 hover:border-indigo-400 hover:text-indigo-600"
-            }`}
-          >
-            Sales by supplier
-          </button>
-        </div>
-
-        {activeTab === "daily" ? (
-          <>
-            <div className="grid gap-4 sm:grid-cols-5 mb-8">
-              {[
-                { label: "Total days", value: formatNumber(dayCount) },
-                {
-                  label: "Transactions",
-                  value: formatNumber(dailyTransactionCount),
-                },
-                {
-                  label: "Total sales",
-                  value: `RM ${formatCurrency(dailyTotalSales)}`,
-                },
-                {
-                  label: "Total cost",
-                  value: `RM ${formatCurrency(dailyTotalCost)}`,
-                },
-                {
-                  label: "Total profit",
-                  value: `RM ${formatCurrency(dailyTotalProfit)}`,
-                },
-              ].map(({ label, value }) => (
-                <div
-                  key={label}
-                  className="rounded-lg border bg-white p-5 shadow-sm"
-                >
-                  <div className="text-sm font-medium text-gray-500">
-                    {label}
-                  </div>
-                  <div className="mt-3 text-2xl font-semibold">{value}</div>
-                </div>
               ))}
             </div>
+          </div>
 
-            <div className="rounded-xl border bg-white p-6 shadow-sm mb-6">
-              <h2 className="text-xl font-semibold text-foreground mb-1">
-                Daily sales chart
-              </h2>
-              <p className="text-sm text-gray-500 mb-6">
-                Total sales RM by date across the selected period.
-              </p>
-              <SalesBarChart
-                data={daily.map((d) => ({
-                  ...d,
-                  hour: 0,
-                  label: d.label,
-                }))}
-              />
-            </div>
-
-            <div className="rounded-xl border bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-semibold text-foreground mb-1">
-                Daily breakdown
-              </h2>
-              <p className="text-sm text-gray-500 mb-4">
-                Detailed sales, cost, and profit per day.
-              </p>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-                  <thead className="bg-gray-50 text-gray-700">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Date</th>
-                      <th className="px-4 py-3 font-medium">First Txn</th>
-                      <th className="px-4 py-3 font-medium">Last Txn</th>
-                      <th className="px-4 py-3 font-medium">Transactions</th>
-                      <th className="px-4 py-3 font-medium">Sales RM</th>
-                      <th className="px-4 py-3 font-medium">Cost RM</th>
-                      <th className="px-4 py-3 font-medium">Profit RM</th>
-                      <th className="px-4 py-3 font-medium">Margin %</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {daily.map(
-                      ({
-                        date,
-                        firstTxnHour,
-                        lastTxnHour,
-                        transactions,
-                        total,
-                        cost,
-                        profit,
-                        margin,
-                      }) => (
-                        <tr key={date} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 font-medium text-gray-900">
-                            {date}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {firstTxnHour || "-"}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-600">
-                            {lastTxnHour || "-"}
-                          </td>
-                          <td className="px-4 py-3">{transactions}</td>
-                          <td className="px-4 py-3">
-                            RM {formatCurrency(total)}
-                          </td>
-                          <td className="px-4 py-3">
-                            RM {formatCurrency(cost)}
-                          </td>
-                          <td className="px-4 py-3 font-medium text-green-600">
-                            RM {formatCurrency(profit)}
-                          </td>
-                          <td className="px-4 py-3 text-gray-500">
-                            {margin.toFixed(1)}%
-                          </td>
-                        </tr>
-                      ),
-                    )}
-                  </tbody>
-                </table>
+          {activeTab === "daily" ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                {[
+                  { label: "Total days", value: formatNumber(dayCount) },
+                  {
+                    label: "Transactions",
+                    value: formatNumber(dailyTransactionCount),
+                  },
+                  {
+                    label: "Total sales",
+                    value: `RM ${formatCurrency(dailyTotalSales)}`,
+                    color: "text-blue-600",
+                  },
+                  {
+                    label: "Total cost",
+                    value: `RM ${formatCurrency(dailyTotalCost)}`,
+                    color: "text-red-600",
+                  },
+                  {
+                    label: "Total profit",
+                    value: `RM ${formatCurrency(dailyTotalProfit)}`,
+                    color: "text-green-600",
+                  },
+                ].map(({ label, value, color = "text-gray-900" }) => (
+                  <div
+                    key={label}
+                    className="bg-white border border-gray-200 rounded-lg p-3 md:p-4"
+                  >
+                    <p className="text-gray-600 text-xs font-medium mb-2">
+                      {label}
+                    </p>
+                    <p className={`text-base md:text-lg font-bold ${color}`}>
+                      {value}
+                    </p>
+                  </div>
+                ))}
               </div>
-            </div>
-          </>
-        ) : activeTab === "time" ? (
-          <>
-            <div className="grid gap-4 sm:grid-cols-3 mb-8">
-              {[
-                { label: "Trading days", value: formatNumber(dateCount) },
-                {
-                  label: "Transactions",
-                  value: formatNumber(transactionCount),
-                },
-                {
-                  label: "Total sales",
-                  value: `RM ${formatCurrency(totalSales)}`,
-                },
-              ].map(({ label, value }) => (
-                <div
-                  key={label}
-                  className="rounded-lg border bg-white p-5 shadow-sm"
-                >
-                  <div className="text-sm font-medium text-gray-500">
-                    {label}
-                  </div>
-                  <div className="mt-3 text-2xl font-semibold">{value}</div>
-                </div>
-              ))}
-            </div>
 
-            {hourly.length === 0 ? (
-              <div className="rounded-xl border bg-white p-10 text-center shadow-sm">
-                <p className="text-sm text-gray-500">
-                  No transactions found for the selected date range.
+              <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+                <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                  Daily sales chart
+                </h2>
+                <p className="text-xs md:text-sm text-gray-600 mb-4">
+                  Total sales RM by date across the selected period.
                 </p>
+                <SalesBarChart
+                  data={daily.map((d) => ({
+                    ...d,
+                    hour: 0,
+                    label: d.label,
+                  }))}
+                />
               </div>
-            ) : (
-              <>
-                <div className="mb-6 flex gap-3">
-                  <button
-                    onClick={() => setTimeView("hourly")}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                      timeView === "hourly"
-                        ? "bg-indigo-600 text-white"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    }`}
-                  >
-                    By Hour
-                  </button>
-                  <button
-                    onClick={() => setTimeView("daily")}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                      timeView === "daily"
-                        ? "bg-indigo-600 text-white"
-                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    }`}
-                  >
-                    By Day of Week
-                  </button>
-                </div>
 
-                {timeView === "hourly" ? (
-                  <>
-                    <div className="rounded-xl border bg-white p-6 shadow-sm mb-6">
-                      <h2 className="text-xl font-semibold text-foreground mb-1">
-                        Sales by hour — bar chart
-                      </h2>
-                      <p className="text-sm text-gray-500 mb-6">
-                        Total RM and number of transactions per hour (10 AM - 12
-                        AM).
-                      </p>
-                      <SalesBarChart data={operationHourly} />
-                    </div>
-
-                    <div className="rounded-xl border bg-white p-6 shadow-sm mb-6">
-                      <h2 className="text-xl font-semibold text-foreground mb-1">
-                        Sales trend — line chart
-                      </h2>
-                      <p className="text-sm text-gray-500 mb-6">
-                        Sales RM across hours of operation (10 AM - 12 AM).
-                      </p>
-                      <SalesLineChart data={operationHourly} />
-                    </div>
-
-                    <div className="rounded-xl border bg-white p-6 shadow-sm mb-6">
-                      <h2 className="text-xl font-semibold text-foreground mb-1">
-                        Hourly trend by day
-                      </h2>
-                      <p className="text-sm text-gray-500 mb-6">
-                        Sales trend for each day of the week showing peak hours
-                        and patterns. All charts use the same hour range labels
-                        (e.g., 11am-12pm, 12pm-1pm) for easy comparison.
-                      </p>
-                      <DayOfWeekTrendCharts data={daysOfWeek} />
-                    </div>
-
-                    <div className="rounded-xl border bg-white p-6 shadow-sm">
-                      <h2 className="text-xl font-semibold text-foreground mb-1">
-                        Hourly breakdown
-                      </h2>
-                      <p className="text-sm text-gray-500 mb-4">
-                        Detailed totals per hour slot.
-                      </p>
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-                          <thead className="bg-gray-50 text-gray-700">
-                            <tr>
-                              <th className="px-4 py-3 font-medium">
-                                Hour range
-                              </th>
-                              <th className="px-4 py-3 font-medium">
-                                Transactions
-                              </th>
-                              <th className="px-4 py-3 font-medium">Trans %</th>
-                              <th className="px-4 py-3 font-medium">
-                                Sales RM
-                              </th>
-                              <th className="px-4 py-3 font-medium">
-                                Avg / transaction
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-200">
-                            {operationHourly.map(
-                              ({ hour, label, total, transactions }) => (
-                                <tr key={hour} className="hover:bg-gray-50">
-                                  <td className="px-4 py-3 font-medium text-gray-900">
-                                    {label}
-                                  </td>
-                                  <td className="px-4 py-3">{transactions}</td>
-                                  <td className="px-4 py-3 text-amber-600 font-medium">
-                                    {transactionCount > 0
-                                      ? (
-                                          (transactions / transactionCount) *
-                                          100
-                                        ).toFixed(1)
-                                      : "0.0"}
-                                    %
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    RM {formatCurrency(total)}
-                                  </td>
-                                  <td className="px-4 py-3 text-gray-500">
-                                    RM {formatCurrency(total / transactions)}
-                                  </td>
-                                </tr>
-                              ),
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="rounded-xl border bg-white p-6 shadow-sm mb-6">
-                      <h2 className="text-xl font-semibold text-foreground mb-1">
-                        Sales by day of week
-                      </h2>
-                      <p className="text-sm text-gray-500 mb-6">
-                        Total RM and transactions by day of the week showing
-                        trends.
-                      </p>
-                      <SalesByDayOfWeekChart data={daysOfWeek} />
-                    </div>
-
-                    <div className="rounded-xl border bg-white p-6 shadow-sm">
-                      <h2 className="text-xl font-semibold text-foreground mb-1">
-                        Day of week breakdown
-                      </h2>
-                      <p className="text-sm text-gray-500 mb-4">
-                        Sales totals and hourly patterns per day.
-                      </p>
-                      <div className="space-y-6">
-                        {daysOfWeek.map(
+              <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+                <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                  Daily breakdown
+                </h2>
+                <p className="text-xs md:text-sm text-gray-600 mb-4">
+                  Detailed sales, cost, and profit per day.
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full divide-y divide-gray-200 text-left text-xs md:text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                          Date
+                        </th>
+                        <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                          Txns
+                        </th>
+                        <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                          Sales RM
+                        </th>
+                        <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                          Cost RM
+                        </th>
+                        <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                          Profit RM
+                        </th>
+                        <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                          Margin %
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {daily
+                        .sort(
+                          (a, b) =>
+                            new Date(b.date).getTime() -
+                            new Date(a.date).getTime(),
+                        )
+                        .map(
                           ({
-                            dayName,
-                            total,
+                            date,
                             transactions,
-                            hourlyBreakdown,
-                          }) => (
-                            <div
-                              key={dayName}
-                              className="border-t pt-6 first:border-t-0 first:pt-0"
-                            >
-                              <div className="flex items-center justify-between mb-4">
-                                <h3 className="font-semibold text-gray-900">
-                                  {dayName}
-                                </h3>
-                                <div className="flex gap-6 text-sm">
-                                  <div>
-                                    <span className="text-gray-500">
-                                      Sales:
-                                    </span>{" "}
-                                    <span className="font-medium">
-                                      RM {formatCurrency(total)}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-gray-500">
-                                      Transactions:
-                                    </span>{" "}
-                                    <span className="font-medium">
-                                      {formatNumber(transactions)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="overflow-x-auto">
-                                <table className="min-w-full divide-y divide-gray-200 text-left text-xs">
-                                  <thead className="bg-gray-50 text-gray-700">
-                                    <tr>
-                                      <th className="px-3 py-2 font-medium">
-                                        Hour
-                                      </th>
-                                      <th className="px-3 py-2 font-medium">
-                                        Transactions
-                                      </th>
-                                      <th className="px-3 py-2 font-medium">
-                                        Sales RM
-                                      </th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-gray-200">
-                                    {hourlyBreakdown.map(
-                                      ({
-                                        hour,
-                                        label,
-                                        total: hourTotal,
-                                        transactions: hourTx,
-                                      }) => (
-                                        <tr
-                                          key={hour}
-                                          className="hover:bg-gray-50"
-                                        >
-                                          <td className="px-3 py-2 text-gray-900">
-                                            {label}
-                                          </td>
-                                          <td className="px-3 py-2">
-                                            {hourTx}
-                                          </td>
-                                          <td className="px-3 py-2">
-                                            RM {formatCurrency(hourTotal)}
-                                          </td>
-                                        </tr>
-                                      ),
-                                    )}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          ),
-                        )}
-                      </div>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-          </>
-        ) : activeTab === "products" ? (
-          <>
-            <div className="grid gap-4 sm:grid-cols-4 mb-8">
-              {[
-                { label: "Products sold", value: formatNumber(productCount) },
-                { label: "Units sold", value: formatNumber(totalUnits) },
-                {
-                  label: "Product sales",
-                  value: `RM ${formatCurrency(totalProductSales)}`,
-                },
-                {
-                  label: "Total cost",
-                  value: `RM ${formatCurrency(totalProductCost || 0)}`,
-                },
-              ].map(({ label, value }) => (
-                <div
-                  key={label}
-                  className="rounded-lg border bg-white p-5 shadow-sm"
-                >
-                  <div className="text-sm font-medium text-gray-500">
-                    {label}
-                  </div>
-                  <div className="mt-3 text-2xl font-semibold">{value}</div>
-                </div>
-              ))}
-            </div>
-
-            {totalProductCost !== undefined &&
-              totalProductProfit !== undefined && (
-                <div className="grid gap-4 sm:grid-cols-2 mb-8">
-                  {[
-                    {
-                      label: "Total profit",
-                      value: `RM ${formatCurrency(totalProductProfit)}`,
-                      color:
-                        totalProductProfit >= 0
-                          ? "text-green-600"
-                          : "text-red-600",
-                    },
-                    {
-                      label: "Profit margin",
-                      value:
-                        totalProductSales > 0
-                          ? `${((totalProductProfit / totalProductSales) * 100).toFixed(1)}%`
-                          : "0%",
-                      color: "text-blue-600",
-                    },
-                  ].map(({ label, value, color }) => (
-                    <div
-                      key={label}
-                      className="rounded-lg border bg-white p-5 shadow-sm"
-                    >
-                      <div className="text-sm font-medium text-gray-500">
-                        {label}
-                      </div>
-                      <div className={`mt-3 text-2xl font-semibold ${color}`}>
-                        {value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-            {products.length === 0 ? (
-              <div className="rounded-xl border bg-white p-10 text-center shadow-sm">
-                <p className="text-sm text-gray-500">
-                  No product sales found for the selected date range.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="rounded-xl border bg-white p-6 shadow-sm mb-6">
-                  <h2 className="text-xl font-semibold text-foreground mb-1">
-                    Top products by sales
-                  </h2>
-                  <p className="text-sm text-gray-500 mb-6">
-                    Highest grossing products in the selected range.
-                  </p>
-                  <ProductSalesBarChart data={topProducts} />
-                </div>
-
-                <div className="rounded-xl border bg-white p-6 shadow-sm">
-                  <h2 className="text-xl font-semibold text-foreground mb-1">
-                    Product breakdown
-                  </h2>
-                  <p className="text-sm text-gray-500 mb-4">
-                    Quantity and sales by product.
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-                      <thead className="bg-gray-50 text-gray-700">
-                        <tr>
-                          <th className="px-4 py-3 font-medium">Product</th>
-                          <th className="px-4 py-3 font-medium">Units</th>
-                          <th className="px-4 py-3 font-medium">Sales RM</th>
-                          <th className="px-4 py-3 font-medium">Cost RM</th>
-                          <th className="px-4 py-3 font-medium">Profit RM</th>
-                          <th className="px-4 py-3 font-medium">Margin %</th>
-                          <th className="px-4 py-3 font-medium">
-                            Avg unit price
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {products.map(
-                          ({
-                            name,
-                            quantity,
                             total,
-                            cost = 0,
-                            profit = 0,
-                            margin = 0,
+                            cost,
+                            profit,
+                            margin,
                           }) => (
-                            <tr key={name} className="hover:bg-gray-50">
-                              <td className="px-4 py-3 font-medium text-gray-900">
-                                {name}
+                            <tr key={date} className="hover:bg-gray-50">
+                              <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
+                                {date}
                               </td>
-                              <td className="px-4 py-3">{quantity}</td>
-                              <td className="px-4 py-3">
+                              <td className="px-3 md:px-4 py-2 md:py-3">
+                                {transactions}
+                              </td>
+                              <td className="px-3 md:px-4 py-2 md:py-3">
                                 RM {formatCurrency(total)}
                               </td>
-                              <td className="px-4 py-3 text-gray-600">
+                              <td className="px-3 md:px-4 py-2 md:py-3">
                                 RM {formatCurrency(cost)}
                               </td>
-                              <td
-                                className={`px-4 py-3 font-medium ${profit >= 0 ? "text-green-600" : "text-red-600"}`}
-                              >
+                              <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-green-600">
                                 RM {formatCurrency(profit)}
                               </td>
-                              <td className="px-4 py-3 text-blue-600">
+                              <td className="px-3 md:px-4 py-2 md:py-3 text-gray-600">
                                 {margin.toFixed(1)}%
-                              </td>
-                              <td className="px-4 py-3 text-gray-500">
-                                RM{" "}
-                                {formatCurrency(
-                                  quantity > 0 ? total / quantity : 0,
-                                )}
                               </td>
                             </tr>
                           ),
                         )}
-                      </tbody>
-                    </table>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : activeTab === "time" ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+                {[
+                  { label: "Trading days", value: formatNumber(dateCount) },
+                  {
+                    label: "Transactions",
+                    value: formatNumber(transactionCount),
+                  },
+                  {
+                    label: "Total sales",
+                    value: `RM ${formatCurrency(totalSales)}`,
+                    color: "text-blue-600",
+                  },
+                ].map(({ label, value, color = "text-gray-900" }) => (
+                  <div
+                    key={label}
+                    className="bg-white border border-gray-200 rounded-lg p-3 md:p-4"
+                  >
+                    <p className="text-gray-600 text-xs font-medium mb-2">
+                      {label}
+                    </p>
+                    <p className={`text-base md:text-lg font-bold ${color}`}>
+                      {value}
+                    </p>
                   </div>
-                </div>
-              </>
-            )}
-          </>
-        ) : activeTab === "payments" ? (
-          <>
-            <div className="grid gap-4 sm:grid-cols-4 mb-8">
-              <div className="rounded-lg border bg-white p-5 shadow-sm">
-                <div className="text-sm font-medium text-gray-500">Cash</div>
-                <div className="mt-3 text-2xl font-semibold">
-                  RM {formatCurrency(paymentPoints[0].total)}
-                </div>
-                <div className="mt-1 text-xs text-gray-500">
-                  {formatNumber(paymentPoints[0].transactions)} transactions
-                </div>
+                ))}
               </div>
-              <div className="rounded-lg border bg-white p-5 shadow-sm">
-                <div className="text-sm font-medium text-gray-500">QR</div>
-                <div className="mt-3 text-2xl font-semibold">
-                  RM {formatCurrency(paymentPoints[1].total)}
-                </div>
-                <div className="mt-1 text-xs text-gray-500">
-                  {formatNumber(paymentPoints[1].transactions)} transactions
-                </div>
-              </div>
-              <div className="rounded-lg border bg-white p-5 shadow-sm">
-                <div className="text-sm font-medium text-gray-500">
-                  Credit / Debit Card
-                </div>
-                <div className="mt-3 text-2xl font-semibold">
-                  RM {formatCurrency(paymentPoints[2].total)}
-                </div>
-                <div className="mt-1 text-xs text-gray-500">
-                  {formatNumber(paymentPoints[2].transactions)} transactions
-                </div>
-              </div>
-              <div className="rounded-lg border bg-white p-5 shadow-sm">
-                <div className="text-sm font-medium text-gray-500">
-                  Total paid
-                </div>
-                <div className="mt-3 text-2xl font-semibold">
-                  RM {formatCurrency(totalPaymentSales)}
-                </div>
-                <div className="mt-1 text-xs text-gray-500">
-                  {formatNumber(totalPaymentTransactions)} payment entries
-                </div>
-              </div>
-            </div>
 
-            <div className="rounded-xl border bg-white p-6 shadow-sm mb-6">
-              <h2 className="text-xl font-semibold text-foreground mb-1">
-                Sales by payment method
-              </h2>
-              <p className="text-sm text-gray-500 mb-6">
-                Cash, QR, and credit/debit card totals in selected date range.
-              </p>
-              <PaymentTypeBarChart data={paymentPoints} />
-            </div>
+              {hourly.length === 0 ? (
+                <div className="bg-white border border-gray-200 rounded-lg p-8 md:p-12 text-center">
+                  <p className="text-sm text-gray-500">
+                    No transactions found for the selected date range.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 mb-6">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setTimeView("hourly")}
+                        className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-lg transition-colors ${
+                          timeView === "hourly"
+                            ? "bg-blue-600 text-white"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                      >
+                        By Hour
+                      </button>
+                      <button
+                        onClick={() => setTimeView("daily")}
+                        className={`px-3 py-1.5 text-xs md:text-sm font-medium rounded-lg transition-colors ${
+                          timeView === "daily"
+                            ? "bg-blue-600 text-white"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                      >
+                        By Day of Week
+                      </button>
+                    </div>
+                  </div>
 
-            <div className="rounded-xl border bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-semibold text-foreground mb-1">
-                Payment breakdown
-              </h2>
-              <p className="text-sm text-gray-500 mb-4">
-                Detailed totals and transaction counts per payment method.
-              </p>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-                  <thead className="bg-gray-50 text-gray-700">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Payment type</th>
-                      <th className="px-4 py-3 font-medium">Transactions</th>
-                      <th className="px-4 py-3 font-medium">Sales RM</th>
-                      <th className="px-4 py-3 font-medium">Avg per txn</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {paymentPoints.map(({ method, transactions, total }) => (
-                      <tr key={method} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900">
-                          {method}
-                        </td>
-                        <td className="px-4 py-3">
-                          {formatNumber(transactions)}
-                        </td>
-                        <td className="px-4 py-3">
-                          RM {formatCurrency(total)}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500">
-                          RM{" "}
-                          {formatCurrency(
-                            transactions > 0 ? total / transactions : 0,
+                  {timeView === "hourly" ? (
+                    <>
+                      <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6 mb-6">
+                        <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                          Sales by hour
+                        </h2>
+                        <p className="text-xs md:text-sm text-gray-600 mb-4">
+                          Total RM and transactions per hour (10 AM - 12 AM).
+                        </p>
+                        <SalesBarChart data={operationHourly} />
+                      </div>
+
+                      <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6 mb-6">
+                        <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                          Sales trend
+                        </h2>
+                        <p className="text-xs md:text-sm text-gray-600 mb-4">
+                          Sales RM across hours of operation (10 AM - 12 AM).
+                        </p>
+                        <SalesLineChart data={operationHourly} />
+                      </div>
+
+                      <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6 mb-6">
+                        <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                          Hourly trend by day
+                        </h2>
+                        <p className="text-xs md:text-sm text-gray-600 mb-4">
+                          Sales trend for each day of the week showing peak
+                          hours and patterns.
+                        </p>
+                        <DayOfWeekTrendCharts data={daysOfWeek} />
+                      </div>
+
+                      <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+                        <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                          Hourly breakdown
+                        </h2>
+                        <p className="text-xs md:text-sm text-gray-600 mb-4">
+                          Detailed totals per hour slot.
+                        </p>
+                        <div className="overflow-x-auto">
+                          <table className="w-full divide-y divide-gray-200 text-left text-xs md:text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                                  Hour
+                                </th>
+                                <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                                  Txns
+                                </th>
+                                <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                                  %
+                                </th>
+                                <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                                  Sales RM
+                                </th>
+                                <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                                  Avg
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {operationHourly.map(
+                                ({ hour, label, total, transactions }) => (
+                                  <tr key={hour} className="hover:bg-gray-50">
+                                    <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
+                                      {label}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3">
+                                      {transactions}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3 text-amber-600 font-medium">
+                                      {transactionCount > 0
+                                        ? (
+                                            (transactions / transactionCount) *
+                                            100
+                                          ).toFixed(1)
+                                        : "0.0"}
+                                      %
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3">
+                                      RM {formatCurrency(total)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3 text-gray-600">
+                                      RM {formatCurrency(total / transactions)}
+                                    </td>
+                                  </tr>
+                                ),
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6 mb-6">
+                        <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                          Sales by day of week
+                        </h2>
+                        <p className="text-xs md:text-sm text-gray-600 mb-4">
+                          Total RM and transactions by day showing trends.
+                        </p>
+                        <SalesByDayOfWeekChart data={daysOfWeek} />
+                      </div>
+
+                      <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+                        <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                          Day of week breakdown
+                        </h2>
+                        <p className="text-xs md:text-sm text-gray-600 mb-4">
+                          Sales totals and hourly patterns per day.
+                        </p>
+                        <div className="space-y-6">
+                          {daysOfWeek.map(
+                            ({
+                              dayName,
+                              total,
+                              transactions,
+                              hourlyBreakdown,
+                            }) => (
+                              <div
+                                key={dayName}
+                                className="border-t pt-6 first:border-t-0 first:pt-0"
+                              >
+                                <div className="flex items-center justify-between mb-3">
+                                  <h3 className="font-semibold text-gray-900 text-sm md:text-base">
+                                    {dayName}
+                                  </h3>
+                                  <div className="flex gap-4 text-xs md:text-sm">
+                                    <div>
+                                      <span className="text-gray-600">
+                                        Sales:
+                                      </span>{" "}
+                                      <span className="font-medium">
+                                        RM {formatCurrency(total)}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-600">
+                                        Txns:
+                                      </span>{" "}
+                                      <span className="font-medium">
+                                        {formatNumber(transactions)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="overflow-x-auto">
+                                  <table className="w-full divide-y divide-gray-200 text-left text-xs">
+                                    <thead className="bg-gray-50">
+                                      <tr>
+                                        <th className="px-3 py-2 font-semibold text-gray-700">
+                                          Hour
+                                        </th>
+                                        <th className="px-3 py-2 font-semibold text-gray-700">
+                                          Txns
+                                        </th>
+                                        <th className="px-3 py-2 font-semibold text-gray-700">
+                                          Sales RM
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                      {hourlyBreakdown.map(
+                                        ({
+                                          hour,
+                                          label,
+                                          total: hourTotal,
+                                          transactions: hourTx,
+                                        }) => (
+                                          <tr
+                                            key={hour}
+                                            className="hover:bg-gray-50"
+                                          >
+                                            <td className="px-3 py-2 text-gray-900">
+                                              {label}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                              {hourTx}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                              RM {formatCurrency(hourTotal)}
+                                            </td>
+                                          </tr>
+                                        ),
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            ),
                           )}
-                        </td>
-                      </tr>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </>
+          ) : activeTab === "products" ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                {[
+                  { label: "Products sold", value: formatNumber(productCount) },
+                  { label: "Units sold", value: formatNumber(totalUnits) },
+                  {
+                    label: "Product sales",
+                    value: `RM ${formatCurrency(totalProductSales)}`,
+                    color: "text-blue-600",
+                  },
+                  {
+                    label: "Total cost",
+                    value: `RM ${formatCurrency(totalProductCost || 0)}`,
+                    color: "text-red-600",
+                  },
+                ].map(({ label, value, color = "text-gray-900" }) => (
+                  <div
+                    key={label}
+                    className="bg-white border border-gray-200 rounded-lg p-3 md:p-4"
+                  >
+                    <p className="text-gray-600 text-xs font-medium mb-2">
+                      {label}
+                    </p>
+                    <p className={`text-base md:text-lg font-bold ${color}`}>
+                      {value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {totalProductCost !== undefined &&
+                totalProductProfit !== undefined && (
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                    {[
+                      {
+                        label: "Total profit",
+                        value: `RM ${formatCurrency(totalProductProfit)}`,
+                        color:
+                          totalProductProfit >= 0
+                            ? "text-green-600"
+                            : "text-red-600",
+                      },
+                      {
+                        label: "Profit margin",
+                        value:
+                          totalProductSales > 0
+                            ? `${((totalProductProfit / totalProductSales) * 100).toFixed(1)}%`
+                            : "0%",
+                        color: "text-blue-600",
+                      },
+                    ].map(({ label, value, color }) => (
+                      <div
+                        key={label}
+                        className="bg-white border border-gray-200 rounded-lg p-3 md:p-4"
+                      >
+                        <p className="text-gray-600 text-xs font-medium mb-2">
+                          {label}
+                        </p>
+                        <p
+                          className={`text-base md:text-lg font-bold ${color}`}
+                        >
+                          {value}
+                        </p>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        ) : activeTab === "staff" ? (
-          <>
-            <div className="grid gap-4 sm:grid-cols-4 mb-8">
-              <div className="rounded-lg border bg-white p-5 shadow-sm">
-                <div className="text-sm font-medium text-gray-500">
-                  Staff count
-                </div>
-                <div className="mt-3 text-2xl font-semibold">
-                  {formatNumber(staffPoints.length)}
-                </div>
-                <div className="mt-1 text-xs text-gray-500">
-                  Total staff members
-                </div>
-              </div>
-              <div className="rounded-lg border bg-white p-5 shadow-sm">
-                <div className="text-sm font-medium text-gray-500">
-                  Total sales
-                </div>
-                <div className="mt-3 text-2xl font-semibold">
-                  RM {formatCurrency(totalStaffSales)}
-                </div>
-                <div className="mt-1 text-xs text-gray-500">
-                  {formatNumber(totalStaffTransactions)} transactions
-                </div>
-              </div>
-              <div className="rounded-lg border bg-white p-5 shadow-sm">
-                <div className="text-sm font-medium text-gray-500">
-                  Total cost
-                </div>
-                <div className="mt-3 text-2xl font-semibold">
-                  RM {formatCurrency(totalStaffCost || 0)}
-                </div>
-                <div className="mt-1 text-xs text-gray-500">
-                  COGS for period
-                </div>
-              </div>
-              <div className="rounded-lg border bg-white p-5 shadow-sm">
-                <div className="text-sm font-medium text-gray-500">
-                  Total profit
-                </div>
-                <div
-                  className={`mt-3 text-2xl font-semibold ${(totalStaffProfit || 0) >= 0 ? "text-green-600" : "text-red-600"}`}
-                >
-                  RM {formatCurrency(totalStaffProfit || 0)}
-                </div>
-                <div className="mt-1 text-xs text-gray-500">After COGS</div>
-              </div>
-            </div>
+                  </div>
+                )}
 
-            {staffPoints.length === 0 ? (
-              <div className="rounded-xl border bg-white p-10 text-center shadow-sm">
-                <p className="text-sm text-gray-500">
-                  No staff sales found for the selected date range.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="rounded-xl border bg-white p-6 shadow-sm mb-6">
-                  <h2 className="text-xl font-semibold text-foreground mb-1">
-                    Staff sales performance
-                  </h2>
-                  <p className="text-sm text-gray-500 mb-6">
-                    Total sales per staff member.
+              {products.length === 0 ? (
+                <div className="bg-white border border-gray-200 rounded-lg p-8 md:p-12 text-center">
+                  <p className="text-sm text-gray-500">
+                    No product sales found for the selected date range.
                   </p>
-                  <StaffSalesBarChart data={staffPoints} />
                 </div>
+              ) : (
+                <>
+                  <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6 mb-6">
+                    <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                      Top products by sales
+                    </h2>
+                    <p className="text-xs md:text-sm text-gray-600 mb-4">
+                      Highest grossing products in the selected range.
+                    </p>
+                    <ProductSalesBarChart data={topProducts} />
+                  </div>
 
-                <div className="rounded-xl border bg-white p-6 shadow-sm">
-                  <h2 className="text-xl font-semibold text-foreground mb-1">
-                    Staff breakdown
-                  </h2>
-                  <p className="text-sm text-gray-500 mb-4">
-                    Sales, transactions, and discounts per staff member.
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-                      <thead className="bg-gray-50 text-gray-700">
-                        <tr>
-                          <th className="px-4 py-3 font-medium">
-                            Staff member
-                          </th>
-                          <th className="px-4 py-3 font-medium">
-                            Transactions
-                          </th>
-                          <th className="px-4 py-3 font-medium">Sales RM</th>
-                          <th className="px-4 py-3 font-medium">Cost RM</th>
-                          <th className="px-4 py-3 font-medium">Profit RM</th>
-                          <th className="px-4 py-3 font-medium">Margin %</th>
-                          <th className="px-4 py-3 font-medium">Discount %</th>
-                          <th className="px-4 py-3 font-medium">Avg per txn</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {staffPoints.map(
-                          ({
-                            name,
-                            transactions,
-                            sales,
-                            discountGiven,
-                            cost = 0,
-                            profit = 0,
-                            margin = 0,
-                          }) => {
-                            const grossSales = sales + discountGiven;
-                            const discountPercentage =
-                              grossSales > 0
-                                ? (discountGiven / grossSales) * 100
-                                : 0;
-                            return (
+                  <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+                    <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                      Product breakdown
+                    </h2>
+                    <p className="text-xs md:text-sm text-gray-600 mb-4">
+                      Quantity and sales by product.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full divide-y divide-gray-200 text-left text-xs md:text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Product
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Units
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Sales RM
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Cost RM
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Profit RM
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Margin %
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {products.map(
+                            ({
+                              name,
+                              quantity,
+                              total,
+                              cost = 0,
+                              profit = 0,
+                              margin = 0,
+                            }) => (
                               <tr key={name} className="hover:bg-gray-50">
-                                <td className="px-4 py-3 font-medium text-gray-900">
+                                <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
                                   {name}
                                 </td>
-                                <td className="px-4 py-3">
-                                  {formatNumber(transactions)}
+                                <td className="px-3 md:px-4 py-2 md:py-3">
+                                  {quantity}
                                 </td>
-                                <td className="px-4 py-3">
-                                  RM {formatCurrency(sales)}
+                                <td className="px-3 md:px-4 py-2 md:py-3">
+                                  RM {formatCurrency(total)}
                                 </td>
-                                <td className="px-4 py-3 text-gray-600">
+                                <td className="px-3 md:px-4 py-2 md:py-3 text-gray-600">
                                   RM {formatCurrency(cost)}
                                 </td>
                                 <td
-                                  className={`px-4 py-3 font-medium ${profit >= 0 ? "text-green-600" : "text-red-600"}`}
+                                  className={`px-3 md:px-4 py-2 md:py-3 font-medium ${profit >= 0 ? "text-green-600" : "text-red-600"}`}
                                 >
                                   RM {formatCurrency(profit)}
                                 </td>
-                                <td className="px-4 py-3 text-blue-600">
+                                <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600">
                                   {margin.toFixed(1)}%
                                 </td>
-                                <td className="px-4 py-3 text-gray-500">
-                                  {discountPercentage.toFixed(1)}%
+                              </tr>
+                            ),
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          ) : activeTab === "payments" ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                {[
+                  {
+                    label: "Cash",
+                    value: `RM ${formatCurrency(paymentPoints[0].total)}`,
+                    subtext: `${formatNumber(paymentPoints[0].transactions)} transactions`,
+                  },
+                  {
+                    label: "QR",
+                    value: `RM ${formatCurrency(paymentPoints[1].total)}`,
+                    subtext: `${formatNumber(paymentPoints[1].transactions)} transactions`,
+                  },
+                  {
+                    label: "Card",
+                    value: `RM ${formatCurrency(paymentPoints[2].total)}`,
+                    subtext: `${formatNumber(paymentPoints[2].transactions)} transactions`,
+                  },
+                  {
+                    label: "Total paid",
+                    value: `RM ${formatCurrency(totalPaymentSales)}`,
+                    subtext: `${formatNumber(totalPaymentTransactions)} entries`,
+                    color: "text-blue-600",
+                  },
+                ].map(({ label, value, subtext, color = "text-gray-900" }) => (
+                  <div
+                    key={label}
+                    className="bg-white border border-gray-200 rounded-lg p-3 md:p-4"
+                  >
+                    <p className="text-gray-600 text-xs font-medium mb-2">
+                      {label}
+                    </p>
+                    <p className={`text-base md:text-lg font-bold ${color}`}>
+                      {value}
+                    </p>
+                    <p className="text-gray-500 text-xs mt-1">{subtext}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6 mb-6">
+                <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                  Sales by payment method
+                </h2>
+                <p className="text-xs md:text-sm text-gray-600 mb-4">
+                  Cash, QR, and card totals in the selected date range.
+                </p>
+                <PaymentTypeBarChart data={paymentPoints} />
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+                <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                  Payment breakdown
+                </h2>
+                <p className="text-xs md:text-sm text-gray-600 mb-4">
+                  Detailed totals and transaction counts per payment method.
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full divide-y divide-gray-200 text-left text-xs md:text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                          Payment type
+                        </th>
+                        <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                          Transactions
+                        </th>
+                        <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                          Sales RM
+                        </th>
+                        <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                          Avg per txn
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {paymentPoints.map(({ method, transactions, total }) => (
+                        <tr key={method} className="hover:bg-gray-50">
+                          <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
+                            {method}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3">
+                            {formatNumber(transactions)}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-medium">
+                            RM {formatCurrency(total)}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-gray-600">
+                            RM{" "}
+                            {formatCurrency(
+                              transactions > 0 ? total / transactions : 0,
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          ) : activeTab === "staff" ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                {[
+                  {
+                    label: "Staff count",
+                    value: formatNumber(staffPoints.length),
+                    subtext: "Total staff members",
+                  },
+                  {
+                    label: "Total sales",
+                    value: `RM ${formatCurrency(totalStaffSales)}`,
+                    subtext: `${formatNumber(totalStaffTransactions)} transactions`,
+                    color: "text-blue-600",
+                  },
+                  {
+                    label: "Total cost",
+                    value: `RM ${formatCurrency(totalStaffCost || 0)}`,
+                    subtext: "COGS for period",
+                    color: "text-red-600",
+                  },
+                  {
+                    label: "Total profit",
+                    value: `RM ${formatCurrency(totalStaffProfit || 0)}`,
+                    subtext: "After COGS",
+                    color:
+                      (totalStaffProfit || 0) >= 0
+                        ? "text-green-600"
+                        : "text-red-600",
+                  },
+                ].map(({ label, value, subtext, color = "text-gray-900" }) => (
+                  <div
+                    key={label}
+                    className="bg-white border border-gray-200 rounded-lg p-3 md:p-4"
+                  >
+                    <p className="text-gray-600 text-xs font-medium mb-2">
+                      {label}
+                    </p>
+                    <p className={`text-base md:text-lg font-bold ${color}`}>
+                      {value}
+                    </p>
+                    <p className="text-gray-500 text-xs mt-1">{subtext}</p>
+                  </div>
+                ))}
+              </div>
+
+              {staffPoints.length === 0 ? (
+                <div className="bg-white border border-gray-200 rounded-lg p-8 md:p-12 text-center">
+                  <p className="text-sm text-gray-500">
+                    No staff sales found for the selected date range.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6 mb-6">
+                    <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                      Staff sales performance
+                    </h2>
+                    <p className="text-xs md:text-sm text-gray-600 mb-4">
+                      Total sales per staff member.
+                    </p>
+                    <StaffSalesBarChart
+                      data={staffPoints.map((staff) => ({
+                        ...staff,
+                        name:
+                          employeeNameMap.get(String(staff.name)) ||
+                          String(staff.name),
+                      }))}
+                    />
+                  </div>
+
+                  <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+                    <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                      Staff breakdown
+                    </h2>
+                    <p className="text-xs md:text-sm text-gray-600 mb-4">
+                      Sales, transactions, and discounts per staff member.
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full divide-y divide-gray-200 text-left text-xs md:text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Staff member
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Transactions
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Sales RM
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Cost RM
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Profit RM
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Margin %
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Discount %
+                            </th>
+                            <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                              Avg per txn
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {staffPoints.map(
+                            ({
+                              name,
+                              transactions,
+                              sales,
+                              discountGiven,
+                              cost = 0,
+                              profit = 0,
+                              margin = 0,
+                            }) => {
+                              const grossSales = sales + discountGiven;
+                              const discountPercentage =
+                                grossSales > 0
+                                  ? (discountGiven / grossSales) * 100
+                                  : 0;
+                              return (
+                                <tr key={name} className="hover:bg-gray-50">
+                                  <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
+                                    {employeeNameMap.get(String(name)) ||
+                                      String(name)}
+                                  </td>
+                                  <td className="px-3 md:px-4 py-2 md:py-3">
+                                    {formatNumber(transactions)}
+                                  </td>
+                                  <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-medium">
+                                    RM {formatCurrency(sales)}
+                                  </td>
+                                  <td className="px-3 md:px-4 py-2 md:py-3 text-gray-600">
+                                    RM {formatCurrency(cost)}
+                                  </td>
+                                  <td
+                                    className={`px-3 md:px-4 py-2 md:py-3 font-medium ${profit >= 0 ? "text-green-600" : "text-red-600"}`}
+                                  >
+                                    RM {formatCurrency(profit)}
+                                  </td>
+                                  <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600">
+                                    {margin.toFixed(1)}%
+                                  </td>
+                                  <td className="px-3 md:px-4 py-2 md:py-3 text-gray-600">
+                                    {discountPercentage.toFixed(1)}%
+                                  </td>
+                                  <td className="px-3 md:px-4 py-2 md:py-3 text-gray-600">
+                                    RM{" "}
+                                    {formatCurrency(
+                                      transactions > 0
+                                        ? sales / transactions
+                                        : 0,
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            },
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+                {[
+                  { label: "Suppliers", value: formatNumber(supplierCount) },
+                  {
+                    label: "Total units",
+                    value: formatNumber(totalSupplierUnits),
+                  },
+                  {
+                    label: "Total sales",
+                    value: `RM ${formatCurrency(totalSupplierSales)}`,
+                    color: "text-blue-600",
+                  },
+                  {
+                    label: "Total cost",
+                    value: `RM ${formatCurrency(totalSupplierCost || 0)}`,
+                    color: "text-red-600",
+                  },
+                  {
+                    label: "Total profit",
+                    value: `RM ${formatCurrency(totalSupplierProfit || 0)}`,
+                    color:
+                      (totalSupplierProfit || 0) >= 0
+                        ? "text-green-600"
+                        : "text-red-600",
+                  },
+                ].map(({ label, value, color = "text-gray-900" }) => (
+                  <div
+                    key={label}
+                    className="bg-white border border-gray-200 rounded-lg p-3 md:p-4"
+                  >
+                    <p className="text-gray-600 text-xs font-medium mb-2">
+                      {label}
+                    </p>
+                    <p className={`text-base md:text-lg font-bold ${color}`}>
+                      {value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6 mb-6">
+                <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                  Sales by supplier — top 10
+                </h2>
+                <p className="text-xs md:text-sm text-gray-600 mb-4">
+                  Highest performing suppliers by sales volume.
+                </p>
+                <ProductSalesBarChart
+                  data={topSuppliers.map((s) => ({ name: s.supplier, ...s }))}
+                />
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+                <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                  All suppliers
+                </h2>
+                <p className="text-xs md:text-sm text-gray-600 mb-6">
+                  Complete supplier performance breakdown with sales, cost, and
+                  profit.
+                </p>
+
+                {/* Consignment suppliers */}
+                <div className="mb-8">
+                  <h3 className="text-sm md:text-base font-semibold text-gray-900 mb-3">
+                    Consignment Suppliers
+                  </h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full divide-y divide-gray-200 text-left text-xs md:text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Supplier
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Units
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            SubTotal RM
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Total RM
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Cost RM
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Profit RM
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Margin %
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {suppliers
+                          .filter((s) => s.supplyType === "Consignment")
+                          .map(
+                            ({
+                              supplier,
+                              quantity,
+                              subtotal,
+                              total,
+                              cost,
+                              profit,
+                              margin,
+                            }) => (
+                              <tr key={supplier} className="hover:bg-gray-50">
+                                <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
+                                  {supplier}
                                 </td>
-                                <td className="px-4 py-3 text-gray-500">
-                                  RM{" "}
-                                  {formatCurrency(
-                                    transactions > 0 ? sales / transactions : 0,
-                                  )}
+                                <td className="px-3 md:px-4 py-2 md:py-3">
+                                  {formatNumber(quantity)}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3">
+                                  RM {formatCurrency(subtotal)}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-medium">
+                                  RM {formatCurrency(total)}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3 text-red-600">
+                                  RM {formatCurrency(cost)}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-green-600">
+                                  RM {formatCurrency(profit)}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600">
+                                  {margin.toFixed(1)}%
                                 </td>
                               </tr>
-                            );
-                          },
-                        )}
+                            ),
+                          )}
+                        <tr className="bg-gray-100 font-semibold text-xs md:text-sm">
+                          <td className="px-3 md:px-4 py-2 md:py-3">
+                            Consignment Subtotal
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3">
+                            {formatNumber(
+                              suppliers
+                                .filter((s) => s.supplyType === "Consignment")
+                                .reduce((sum, s) => sum + s.quantity, 0),
+                            )}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3">
+                            RM{" "}
+                            {formatCurrency(
+                              suppliers
+                                .filter((s) => s.supplyType === "Consignment")
+                                .reduce((sum, s) => sum + s.subtotal, 0),
+                            )}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-bold">
+                            RM{" "}
+                            {formatCurrency(
+                              suppliers
+                                .filter((s) => s.supplyType === "Consignment")
+                                .reduce((sum, s) => sum + s.total, 0),
+                            )}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-red-600 font-bold">
+                            RM{" "}
+                            {formatCurrency(
+                              suppliers
+                                .filter((s) => s.supplyType === "Consignment")
+                                .reduce((sum, s) => sum + s.cost, 0),
+                            )}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-green-600 font-bold">
+                            RM{" "}
+                            {formatCurrency(
+                              suppliers
+                                .filter((s) => s.supplyType === "Consignment")
+                                .reduce((sum, s) => sum + s.profit, 0),
+                            )}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-bold">
+                            {(
+                              (suppliers
+                                .filter((s) => s.supplyType === "Consignment")
+                                .reduce((sum, s) => sum + s.profit, 0) /
+                                suppliers
+                                  .filter((s) => s.supplyType === "Consignment")
+                                  .reduce((sum, s) => sum + s.total, 0)) *
+                              100
+                            ).toFixed(1)}
+                            %
+                          </td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>
                 </div>
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="grid gap-4 sm:grid-cols-5 mb-8">
-              {[
-                { label: "Suppliers", value: formatNumber(supplierCount) },
-                {
-                  label: "Total units",
-                  value: formatNumber(totalSupplierUnits),
-                },
-                {
-                  label: "Total sales",
-                  value: `RM ${formatCurrency(totalSupplierSales)}`,
-                },
-                {
-                  label: "Total cost",
-                  value: `RM ${formatCurrency(totalSupplierCost || 0)}`,
-                },
-                {
-                  label: "Total profit",
-                  value: `RM ${formatCurrency(totalSupplierProfit || 0)}`,
-                },
-              ].map(({ label, value }) => (
-                <div
-                  key={label}
-                  className="rounded-lg border bg-white p-5 shadow-sm"
-                >
-                  <div className="text-sm font-medium text-gray-500">
-                    {label}
-                  </div>
-                  <div className="mt-3 text-2xl font-semibold">{value}</div>
-                </div>
-              ))}
-            </div>
 
-            <div className="rounded-xl border bg-white p-6 shadow-sm mb-6">
-              <h2 className="text-xl font-semibold text-foreground mb-1">
-                Sales by supplier — top 10
-              </h2>
-              <p className="text-sm text-gray-500 mb-6">
-                Highest performing suppliers by sales volume.
-              </p>
-              <ProductSalesBarChart
-                data={topSuppliers.map((s) => ({ name: s.supplier, ...s }))}
-              />
-            </div>
-
-            <div className="rounded-xl border bg-white p-6 shadow-sm">
-              <h2 className="text-xl font-semibold text-foreground mb-1">
-                All suppliers
-              </h2>
-              <p className="text-sm text-gray-500 mb-6">
-                Complete supplier performance breakdown with sales, cost, and
-                profit.
-              </p>
-
-              {/* Consignment suppliers */}
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold text-foreground mb-4">
-                  Consignment Suppliers
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-                    <thead className="bg-gray-50 text-gray-700">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Supplier</th>
-                        <th className="px-4 py-3 font-medium">Units</th>
-                        <th className="px-4 py-3 font-medium">SubTotal RM</th>
-                        <th className="px-4 py-3 font-medium">Total RM</th>
-                        <th className="px-4 py-3 font-medium">Cost RM</th>
-                        <th className="px-4 py-3 font-medium">Profit RM</th>
-                        <th className="px-4 py-3 font-medium">Margin %</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {suppliers
-                        .filter((s) => s.supplyType === "Consignment")
-                        .map(
-                          ({
-                            supplier,
-                            quantity,
-                            subtotal,
-                            total,
-                            cost,
-                            profit,
-                            margin,
-                          }) => (
-                            <tr key={supplier} className="hover:bg-gray-50">
-                              <td className="px-4 py-3 font-medium text-gray-900">
-                                {supplier}
-                              </td>
-                              <td className="px-4 py-3">
-                                {formatNumber(quantity)}
-                              </td>
-                              <td className="px-4 py-3">
-                                RM {formatCurrency(subtotal)}
-                              </td>
-                              <td className="px-4 py-3">
-                                RM {formatCurrency(total)}
-                              </td>
-                              <td className="px-4 py-3">
-                                RM {formatCurrency(cost)}
-                              </td>
-                              <td className="px-4 py-3 font-medium text-green-600">
-                                RM {formatCurrency(profit)}
-                              </td>
-                              <td className="px-4 py-3 text-gray-500">
-                                {margin.toFixed(1)}%
-                              </td>
-                            </tr>
-                          ),
-                        )}
-                      <tr className="bg-gray-100 font-semibold">
-                        <td className="px-4 py-3">Consignment Subtotal</td>
-                        <td className="px-4 py-3">
-                          {formatNumber(
-                            suppliers
-                              .filter((s) => s.supplyType === "Consignment")
-                              .reduce((sum, s) => sum + s.quantity, 0),
+                {/* Outright suppliers */}
+                <div className="mb-8">
+                  <h3 className="text-sm md:text-base font-semibold text-gray-900 mb-3">
+                    Outright Suppliers
+                  </h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full divide-y divide-gray-200 text-left text-xs md:text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Supplier
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Units
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            SubTotal RM
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Total RM
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Cost RM
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Profit RM
+                          </th>
+                          <th className="px-3 md:px-4 py-2 md:py-3 font-semibold text-gray-700">
+                            Margin %
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {suppliers
+                          .filter((s) => s.supplyType === "Outright")
+                          .map(
+                            ({
+                              supplier,
+                              quantity,
+                              subtotal,
+                              total,
+                              cost,
+                              profit,
+                              margin,
+                            }) => (
+                              <tr key={supplier} className="hover:bg-gray-50">
+                                <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
+                                  {supplier}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3">
+                                  {formatNumber(quantity)}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3">
+                                  RM {formatCurrency(subtotal)}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-medium">
+                                  RM {formatCurrency(total)}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3 text-red-600">
+                                  RM {formatCurrency(cost)}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-green-600">
+                                  RM {formatCurrency(profit)}
+                                </td>
+                                <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600">
+                                  {margin.toFixed(1)}%
+                                </td>
+                              </tr>
+                            ),
                           )}
-                        </td>
-                        <td className="px-4 py-3">
-                          RM{" "}
-                          {formatCurrency(
-                            suppliers
-                              .filter((s) => s.supplyType === "Consignment")
-                              .reduce((sum, s) => sum + s.subtotal, 0),
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          RM{" "}
-                          {formatCurrency(
-                            suppliers
-                              .filter((s) => s.supplyType === "Consignment")
-                              .reduce((sum, s) => sum + s.total, 0),
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          RM{" "}
-                          {formatCurrency(
-                            suppliers
-                              .filter((s) => s.supplyType === "Consignment")
-                              .reduce((sum, s) => sum + s.cost, 0),
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          RM{" "}
-                          {formatCurrency(
-                            suppliers
-                              .filter((s) => s.supplyType === "Consignment")
-                              .reduce((sum, s) => sum + s.profit, 0),
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {(
-                            (suppliers
-                              .filter((s) => s.supplyType === "Consignment")
-                              .reduce((sum, s) => sum + s.profit, 0) /
+                        <tr className="bg-gray-100 font-semibold text-xs md:text-sm">
+                          <td className="px-3 md:px-4 py-2 md:py-3">
+                            Outright Subtotal
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3">
+                            {formatNumber(
                               suppliers
-                                .filter((s) => s.supplyType === "Consignment")
-                                .reduce((sum, s) => sum + s.total, 0)) *
-                            100
-                          ).toFixed(1)}
-                          %
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Outright suppliers */}
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold text-foreground mb-4">
-                  Outright Suppliers
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-                    <thead className="bg-gray-50 text-gray-700">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Supplier</th>
-                        <th className="px-4 py-3 font-medium">Units</th>
-                        <th className="px-4 py-3 font-medium">SubTotal RM</th>
-                        <th className="px-4 py-3 font-medium">Total RM</th>
-                        <th className="px-4 py-3 font-medium">Cost RM</th>
-                        <th className="px-4 py-3 font-medium">Profit RM</th>
-                        <th className="px-4 py-3 font-medium">Margin %</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {suppliers
-                        .filter((s) => s.supplyType === "Outright")
-                        .map(
-                          ({
-                            supplier,
-                            quantity,
-                            subtotal,
-                            total,
-                            cost,
-                            profit,
-                            margin,
-                          }) => (
-                            <tr key={supplier} className="hover:bg-gray-50">
-                              <td className="px-4 py-3 font-medium text-gray-900">
-                                {supplier}
-                              </td>
-                              <td className="px-4 py-3">
-                                {formatNumber(quantity)}
-                              </td>
-                              <td className="px-4 py-3">
-                                RM {formatCurrency(subtotal)}
-                              </td>
-                              <td className="px-4 py-3">
-                                RM {formatCurrency(total)}
-                              </td>
-                              <td className="px-4 py-3">
-                                RM {formatCurrency(cost)}
-                              </td>
-                              <td className="px-4 py-3 font-medium text-green-600">
-                                RM {formatCurrency(profit)}
-                              </td>
-                              <td className="px-4 py-3 text-gray-500">
-                                {margin.toFixed(1)}%
-                              </td>
-                            </tr>
-                          ),
-                        )}
-                      <tr className="bg-gray-100 font-semibold">
-                        <td className="px-4 py-3">Outright Subtotal</td>
-                        <td className="px-4 py-3">
-                          {formatNumber(
-                            suppliers
+                                .filter((s) => s.supplyType === "Outright")
+                                .reduce((sum, s) => sum + s.quantity, 0),
+                            )}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3">
+                            RM{" "}
+                            {formatCurrency(
+                              suppliers
+                                .filter((s) => s.supplyType === "Outright")
+                                .reduce((sum, s) => sum + s.subtotal, 0),
+                            )}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-bold">
+                            RM{" "}
+                            {formatCurrency(
+                              suppliers
+                                .filter((s) => s.supplyType === "Outright")
+                                .reduce((sum, s) => sum + s.total, 0),
+                            )}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-red-600 font-bold">
+                            RM{" "}
+                            {formatCurrency(
+                              suppliers
+                                .filter((s) => s.supplyType === "Outright")
+                                .reduce((sum, s) => sum + s.cost, 0),
+                            )}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-green-600 font-bold">
+                            RM{" "}
+                            {formatCurrency(
+                              suppliers
+                                .filter((s) => s.supplyType === "Outright")
+                                .reduce((sum, s) => sum + s.profit, 0),
+                            )}
+                          </td>
+                          <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-bold">
+                            {suppliers
                               .filter((s) => s.supplyType === "Outright")
-                              .reduce((sum, s) => sum + s.quantity, 0),
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          RM{" "}
-                          {formatCurrency(
-                            suppliers
-                              .filter((s) => s.supplyType === "Outright")
-                              .reduce((sum, s) => sum + s.subtotal, 0),
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          RM{" "}
-                          {formatCurrency(
-                            suppliers
-                              .filter((s) => s.supplyType === "Outright")
-                              .reduce((sum, s) => sum + s.total, 0),
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          RM{" "}
-                          {formatCurrency(
-                            suppliers
-                              .filter((s) => s.supplyType === "Outright")
-                              .reduce((sum, s) => sum + s.cost, 0),
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          RM{" "}
-                          {formatCurrency(
-                            suppliers
-                              .filter((s) => s.supplyType === "Outright")
-                              .reduce((sum, s) => sum + s.profit, 0),
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {suppliers
-                            .filter((s) => s.supplyType === "Outright")
-                            .reduce((sum, s) => sum + s.total, 0) > 0
-                            ? (
-                                (suppliers
-                                  .filter((s) => s.supplyType === "Outright")
-                                  .reduce((sum, s) => sum + s.profit, 0) /
-                                  suppliers
+                              .reduce((sum, s) => sum + s.total, 0) > 0
+                              ? (
+                                  (suppliers
                                     .filter((s) => s.supplyType === "Outright")
-                                    .reduce((sum, s) => sum + s.total, 0)) *
-                                100
-                              ).toFixed(1)
-                            : "0.0"}
-                          %
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Grand Total */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
-                <h3 className="text-lg font-semibold text-foreground mb-4">
-                  Grand Total (All Suppliers)
-                </h3>
-                <div className="grid gap-4 sm:grid-cols-7">
-                  <div className="bg-white p-4 rounded border border-gray-200">
-                    <div className="text-xs font-medium text-gray-500 mb-1">
-                      Units
-                    </div>
-                    <div className="text-xl font-semibold">
-                      {formatNumber(
-                        suppliers.reduce((sum, s) => sum + s.quantity, 0),
-                      )}
-                    </div>
-                  </div>
-                  <div className="bg-white p-4 rounded border border-gray-200">
-                    <div className="text-xs font-medium text-gray-500 mb-1">
-                      SubTotal RM
-                    </div>
-                    <div className="text-xl font-semibold">
-                      {formatCurrency(
-                        suppliers.reduce((sum, s) => sum + s.subtotal, 0),
-                      )}
-                    </div>
-                  </div>
-                  <div className="bg-white p-4 rounded border border-gray-200">
-                    <div className="text-xs font-medium text-gray-500 mb-1">
-                      Total RM
-                    </div>
-                    <div className="text-xl font-semibold">
-                      {formatCurrency(
-                        suppliers.reduce((sum, s) => sum + s.total, 0),
-                      )}
-                    </div>
-                  </div>
-                  <div className="bg-white p-4 rounded border border-gray-200">
-                    <div className="text-xs font-medium text-gray-500 mb-1">
-                      Cost RM
-                    </div>
-                    <div className="text-xl font-semibold">
-                      {formatCurrency(
-                        suppliers.reduce((sum, s) => sum + s.cost, 0),
-                      )}
-                    </div>
-                  </div>
-                  <div className="bg-white p-4 rounded border border-gray-200">
-                    <div className="text-xs font-medium text-gray-500 mb-1">
-                      Profit RM
-                    </div>
-                    <div className="text-xl font-semibold text-green-600">
-                      {formatCurrency(
-                        suppliers.reduce((sum, s) => sum + s.profit, 0),
-                      )}
-                    </div>
-                  </div>
-                  <div className="bg-white p-4 rounded border border-gray-200">
-                    <div className="text-xs font-medium text-gray-500 mb-1">
-                      Margin %
-                    </div>
-                    <div className="text-xl font-semibold">
-                      {suppliers.reduce((sum, s) => sum + s.total, 0) > 0
-                        ? (
-                            (suppliers.reduce((sum, s) => sum + s.profit, 0) /
-                              suppliers.reduce((sum, s) => sum + s.total, 0)) *
-                            100
-                          ).toFixed(1)
-                        : "0.0"}
-                      %
-                    </div>
-                  </div>
-                  <div className="bg-white p-4 rounded border border-gray-200">
-                    <div className="text-xs font-medium text-gray-500 mb-1">
-                      Discount RM
-                    </div>
-                    <div className="text-xl font-semibold text-orange-600">
-                      {formatCurrency(
-                        suppliers.reduce(
-                          (sum, s) => sum + (s.subtotal - s.total),
-                          0,
-                        ),
-                      )}
-                    </div>
+                                    .reduce((sum, s) => sum + s.profit, 0) /
+                                    suppliers
+                                      .filter(
+                                        (s) => s.supplyType === "Outright",
+                                      )
+                                      .reduce((sum, s) => sum + s.total, 0)) *
+                                  100
+                                ).toFixed(1)
+                              : "0.0"}
+                            %
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

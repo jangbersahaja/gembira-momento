@@ -654,7 +654,10 @@ export default function SalesDashboardClient() {
 
     // API shifts structure
     if (shifts.length > 0 && isApiShift(shifts[0])) {
-      const staffMap = new Map<string, { name: string; sessions: StaffSession[] }>();
+      const staffMap = new Map<
+        string,
+        { name: string; sessions: StaffSession[] }
+      >();
 
       // Determine the target date(s) to filter by
       let targetDate: Date;
