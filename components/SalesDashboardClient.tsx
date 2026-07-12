@@ -654,7 +654,7 @@ export default function SalesDashboardClient() {
 
     // API shifts structure
     if (shifts.length > 0 && isApiShift(shifts[0])) {
-      const staffMap = new Map<string, StaffMember>();
+      const staffMap = new Map<string, { name: string; sessions: StaffSession[] }>();
 
       // Determine the target date(s) to filter by
       let targetDate: Date;
@@ -707,7 +707,6 @@ export default function SalesDashboardClient() {
             // Create new staff member with first session
             staffMap.set(shift.employeeId, {
               name: empName,
-              status: "on-duty",
               sessions: [
                 {
                   startTime: shift.startTime,
@@ -739,7 +738,7 @@ export default function SalesDashboardClient() {
           ...staff,
           status: isCurrentlyActive ? "on-duty" : "off-duty",
           totalHours: Math.round(totalHours * 100) / 100, // Round to 2 decimals
-        };
+        } as StaffMember;
       });
 
       return result;
@@ -839,15 +838,23 @@ export default function SalesDashboardClient() {
       // Calculate total hours for all sessions
       const totalHours = staff.sessions.reduce((sum, session) => {
         const start = new Date(session.startTime).getTime();
-        const end = new Date(session.endTime).getTime();
+        const end = session.endTime
+          ? new Date(session.endTime).getTime()
+          : start;
         const hours = (end - start) / (1000 * 60 * 60);
-        return sum + hours;
+        return sum + (hours > 0 ? hours : 0);
       }, 0);
+
+      // Check if staff is currently active (has a session without endTime)
+      const isCurrentlyActive = staff.sessions.some(
+        (session) => !session.endTime,
+      );
 
       return {
         ...staff,
+        status: isCurrentlyActive ? "on-duty" : "off-duty",
         totalHours: Math.round(totalHours * 100) / 100, // Round to 2 decimals
-      };
+      } as StaffMember;
     });
     console.log("[staffOnDuty] CSV result:", result);
     return result;
@@ -902,7 +909,9 @@ export default function SalesDashboardClient() {
         {/* Key Metrics - Compact Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
           <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
-            <p className="text-gray-500 text-xs font-medium mb-1">Total Sales</p>
+            <p className="text-gray-500 text-xs font-medium mb-1">
+              Total Sales
+            </p>
             <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
               {formatCurrency(metrics.totalSales)}
             </p>
@@ -919,7 +928,9 @@ export default function SalesDashboardClient() {
           </div>
 
           <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
-            <p className="text-gray-500 text-xs font-medium mb-1">Avg. Transaction</p>
+            <p className="text-gray-500 text-xs font-medium mb-1">
+              Avg. Transaction
+            </p>
             <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
               {formatCurrency(metrics.averageTransaction)}
             </p>
@@ -936,7 +947,9 @@ export default function SalesDashboardClient() {
           </div>
 
           <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
-            <p className="text-gray-500 text-xs font-medium mb-1">Transactions</p>
+            <p className="text-gray-500 text-xs font-medium mb-1">
+              Transactions
+            </p>
             <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
               {metrics.totalTransactions}
             </p>
@@ -953,7 +966,9 @@ export default function SalesDashboardClient() {
           </div>
 
           <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
-            <p className="text-gray-500 text-xs font-medium mb-1">Staff On Duty</p>
+            <p className="text-gray-500 text-xs font-medium mb-1">
+              Staff On Duty
+            </p>
             <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
               {staffOnDuty.length}
             </p>
@@ -1081,9 +1096,7 @@ export default function SalesDashboardClient() {
                 })}
               </div>
             ) : (
-              <p className="text-gray-400 text-center py-4 text-xs">
-                No staff
-              </p>
+              <p className="text-gray-400 text-center py-4 text-xs">No staff</p>
             )}
           </div>
         </div>
@@ -1224,7 +1237,8 @@ export default function SalesDashboardClient() {
                                   {item.productName}
                                 </p>
                                 <p className="text-gray-500">
-                                  {item.quantity}x {formatCurrency(item.unitPrice)}
+                                  {item.quantity}x{" "}
+                                  {formatCurrency(item.unitPrice)}
                                 </p>
                               </div>
                             ))}
@@ -1253,9 +1267,7 @@ export default function SalesDashboardClient() {
                               </p>
                             </div>
                             <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded font-semibold">
-                              {formatCurrency(
-                                parseFloat(t.SubTotal || "0"),
-                              )}
+                              {formatCurrency(parseFloat(t.SubTotal || "0"))}
                             </span>
                           </div>
 

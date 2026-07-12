@@ -539,106 +539,92 @@ export default function ProductsClient() {
   }
 
   return (
-    <div className="w-full bg-white min-h-screen">
-      {/* Header Section */}
-      <div className="mx-auto max-w-7xl px-6 py-12 border-b border-gray-200">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-          <div>
-            <h1 className="text-4xl font-bold text-slate-900 mb-2">
-              Products Inventory
+    <div className="w-full bg-gray-50 min-h-screen">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
+        <div className="mx-auto max-w-7xl px-4 md:px-6 py-3 md:py-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-6">
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
+              Products
             </h1>
-            <p className="text-gray-600">
-              All products grouped by category with sales data
-            </p>
-          </div>
-        </div>
-      </div>
 
-      {/* Search Bar and Toggle */}
-      <div className="mx-auto max-w-7xl px-6 py-6 border-b border-gray-200">
-        <div className="flex flex-col gap-4">
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search by product name or SKU..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <span className="absolute right-4 top-3 text-gray-400">🔍</span>
-          </div>
-
-          {/* Group Toggle */}
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-3">
+            {/* View Toggle - Compact */}
+            <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
               <button
                 onClick={() => {
                   setGroupByCategory(!groupByCategory);
                   setGroupBySupplier(false);
                 }}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                className={`px-2.5 py-1.5 rounded-md font-medium transition-all text-xs md:text-sm ${
                   groupByCategory
-                    ? "bg-blue-500 text-white hover:bg-blue-600"
-                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                    ? "bg-blue-500 text-white shadow-sm"
+                    : "text-gray-600 hover:bg-white hover:text-gray-900"
                 }`}
               >
-                {groupByCategory ? "✓ By Category" : "By Category"}
+                Category
               </button>
               <button
                 onClick={() => {
                   setGroupBySupplier(!groupBySupplier);
                   setGroupByCategory(false);
                 }}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                className={`px-2.5 py-1.5 rounded-md font-medium transition-all text-xs md:text-sm ${
                   groupBySupplier
-                    ? "bg-green-500 text-white hover:bg-green-600"
-                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                    ? "bg-green-500 text-white shadow-sm"
+                    : "text-gray-600 hover:bg-white hover:text-gray-900"
                 }`}
               >
-                {groupBySupplier ? "✓ By Supplier" : "By Supplier"}
+                Supplier
               </button>
               <button
                 onClick={() => {
                   setGroupByCategory(false);
                   setGroupBySupplier(false);
                 }}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                className={`px-2.5 py-1.5 rounded-md font-medium transition-all text-xs md:text-sm ${
                   !groupByCategory && !groupBySupplier
-                    ? "bg-purple-500 text-white hover:bg-purple-600"
-                    : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                    ? "bg-purple-500 text-white shadow-sm"
+                    : "text-gray-600 hover:bg-white hover:text-gray-900"
                 }`}
               >
-                {!groupByCategory && !groupBySupplier
-                  ? "✓ Ungrouped"
-                  : "Ungrouped"}
+                All
               </button>
             </div>
-            <p className="text-sm text-gray-600">
-              {groupByCategory
-                ? "Grouped by category"
-                : groupBySupplier
-                  ? "Grouped by supplier"
-                  : "Showing all products ungrouped"}
-            </p>
           </div>
         </div>
       </div>
 
-      {/* Category Groups or Flat List */}
-      <div className="mx-auto max-w-7xl px-6 py-12">
+      {/* Search Bar */}
+      <div className="mx-auto max-w-7xl px-4 md:px-6 py-3 md:py-4 border-b border-gray-200 bg-white">
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Search by product name or SKU..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <span className="absolute right-3 top-2 text-gray-400 text-sm">
+            🔍
+          </span>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="mx-auto max-w-7xl px-4 md:px-6 py-4 md:py-6">
         {categoryGroups.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-600 text-lg">No products found</p>
+          <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+            <p className="text-gray-500 text-sm">No products found</p>
           </div>
         ) : groupBySupplier ? (
           // SUPPLIER GROUPED VIEW
-          <div className="space-y-6">
+          <div className="space-y-3">
             {supplierGroups.map((group) => (
               <div
                 key={group.supplier}
-                className="border border-gray-200 rounded-lg overflow-hidden"
+                className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow"
               >
-                {/* Supplier Header - Clickable */}
+                {/* Supplier Header */}
                 <button
                   onClick={() =>
                     setExpandedCategory(
@@ -647,12 +633,12 @@ export default function ProductsClient() {
                         : group.supplier,
                     )
                   }
-                  className="w-full bg-linear-to-r from-green-50 to-green-100 px-4 sm:px-6 py-4 hover:from-green-100 hover:to-green-200 transition-colors text-left"
+                  className="w-full bg-linear-to-r from-green-50 to-green-100 px-4 py-3 hover:from-green-100 hover:to-green-200 transition-colors text-left"
                 >
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
                       <span
-                        className={`transform transition-transform ${
+                        className={`text-lg transform transition-transform shrink-0 ${
                           expandedCategory === group.supplier
                             ? "rotate-90"
                             : "rotate-0"
@@ -660,136 +646,90 @@ export default function ProductsClient() {
                       >
                         ▶
                       </span>
-                      <div>
-                        <h2 className="font-bold text-lg text-green-700">
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-green-700 text-sm md:text-base truncate">
                           {group.supplier}
-                        </h2>
-                        <p className="text-sm text-gray-600">
-                          {group.productCount} products • {group.totalUnits}{" "}
-                          units sold
+                        </h3>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          {group.productCount} items • {group.totalUnits} sold
                         </p>
                       </div>
                     </div>
-
-                    {/* Summary Stats */}
-                    <div className="grid grid-cols-2 gap-3 sm:flex sm:gap-8 text-right">
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">Stock</p>
-                        <p className="font-semibold text-gray-900">
-                          {group.totalStockBalance}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">
-                          Stock Value
-                        </p>
-                        <p className="font-semibold text-gray-900">
-                          RM {formatCurrency(group.totalStockValue)}
-                        </p>
-                      </div>
+                    <div className="text-right shrink-0 text-xs md:text-sm">
+                      <p className="font-semibold text-gray-900">
+                        RM {formatCurrency(group.totalStockValue)}
+                      </p>
+                      <p className="text-gray-500">
+                        {group.totalStockBalance} units
+                      </p>
                     </div>
                   </div>
                 </button>
 
-                {/* Products List - Expandable */}
+                {/* Products */}
                 {expandedCategory === group.supplier && (
-                  <div className="bg-white border-t border-gray-200">
-                    <div className="divide-y divide-gray-200 max-h-96 overflow-auto">
-                      {/* Header Row */}
-                      <div className="min-w-275 px-4 sm:px-6 py-3 bg-gray-50 grid grid-cols-12 gap-3 sticky top-0 text-xs font-semibold text-gray-700">
-                        <div className="col-span-1">SKU</div>
-                        <div className="col-span-3">Product Name</div>
-                        <div className="col-span-1 text-right">Price</div>
-                        <div className="col-span-1 text-right">Cost</div>
-                        <div className="col-span-1 text-right">Margin %</div>
-                        <div className="col-span-1 text-right">Stocks</div>
-                        <div className="col-span-1 text-right">Units Sold</div>
-                        <div className="col-span-2 text-right">
-                          Last Transaction
+                  <div className="border-t border-gray-200 divide-y divide-gray-100 max-h-80 overflow-y-auto">
+                    {group.products.map((product) => (
+                      <Link
+                        key={product.sku + product.name}
+                        href={`/products/${encodeURIComponent(product.sku)}`}
+                        className={`px-4 py-2.5 text-xs grid gap-2 transition-colors ${
+                          product.missingSkuWarning
+                            ? "bg-orange-50 hover:bg-orange-100"
+                            : product.unitsSold === 0
+                              ? "bg-yellow-50 hover:bg-yellow-100"
+                              : "hover:bg-gray-50"
+                        }`}
+                        style={{
+                          gridTemplateColumns:
+                            "minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(90px, 0.9fr)",
+                        }}
+                      >
+                        <div className="font-mono text-gray-600 truncate">
+                          {product.sku || "—"}
                         </div>
-                      </div>
-
-                      {/* Product Rows */}
-                      {group.products.map((product) => (
-                        <Link
-                          key={product.sku + product.name}
-                          href={`/products/${encodeURIComponent(product.sku)}`}
-                          className={`min-w-275 px-4 sm:px-6 py-3 grid grid-cols-12 gap-3 text-sm transition-colors ${
-                            product.missingSkuWarning
-                              ? "bg-orange-50 hover:bg-orange-100 border-l-2 border-orange-400"
-                              : product.unitsSold === 0
-                                ? "bg-yellow-50 hover:bg-yellow-100"
-                                : "hover:bg-gray-50"
-                          }`}
-                        >
-                          <div className="col-span-1 font-mono text-xs">
-                            {product.sku ? (
-                              <span className="text-gray-600">
-                                {product.sku}
-                              </span>
-                            ) : (
-                              <span className="text-orange-600 font-semibold"></span>
-                            )}
-                          </div>
-                          <div className="col-span-3 text-gray-900 truncate">
-                            <span className="hover:text-blue-600">
-                              {product.name}
-                            </span>
-                          </div>
-                          <div className="col-span-1 text-right text-gray-700">
-                            RM {formatCurrency(product.price)}
-                          </div>
-                          <div className="col-span-1 text-right text-gray-700">
-                            RM {formatCurrency(product.cost)}
-                          </div>
-                          <div
-                            className={`col-span-1 text-right font-semibold ${
-                              product.margin >= 0
-                                ? "text-green-700"
-                                : "text-red-700"
-                            }`}
-                          >
-                            {product.price > 0
-                              ? formatCurrency(
-                                  (product.margin / product.price) * 100,
-                                )
-                              : "0"}
-                            %
-                          </div>
-                          <div className="col-span-1 text-right font-semibold text-gray-900">
-                            {product.stockBalance || "—"}
-                          </div>
-                          <div className="col-span-1 text-right font-semibold">
-                            {product.unitsSold}
-                          </div>
-                          <div className="col-span-2 text-right text-gray-700">
-                            {product.lastTransactionDate || "—"}
-                          </div>
-                        </Link>
-                      ))}
-                    </div>
+                        <div className="text-gray-900 truncate font-medium">
+                          {product.name}
+                        </div>
+                        <div className="text-right text-gray-700">
+                          RM {formatCurrency(product.price)}
+                        </div>
+                        <div className="text-right text-gray-600">
+                          RM {formatCurrency(product.cost)}
+                        </div>
+                        <div className="text-right text-gray-600 truncate">
+                          {product.stockBalance}
+                        </div>
+                        <div className="text-right font-semibold text-gray-900 truncate">
+                          {product.unitsSold}
+                        </div>
+                        <div className="text-right text-gray-600 truncate">
+                          {product.lastTransactionDate || "—"}
+                        </div>
+                      </Link>
+                    ))}
                   </div>
                 )}
               </div>
-            ))}
+            ))}  
           </div>
         ) : groupByCategory ? (
-          // GROUPED VIEW
-          <div className="space-y-6">
+          // CATEGORY GROUPED VIEW
+          <div className="space-y-3">
             {categoryGroups.map((group) => (
               <div
                 key={group.category}
-                className="border border-gray-200 rounded-lg overflow-hidden"
+                className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow"
               >
-                {/* Category Header - Clickable */}
+                {/* Category Header */}
                 <button
                   onClick={() => toggleSupplier(group.category)}
-                  className="w-full bg-linear-to-r from-blue-50 to-blue-100 px-4 sm:px-6 py-4 hover:from-blue-100 hover:to-blue-200 transition-colors text-left"
+                  className="w-full bg-linear-to-r from-blue-50 to-blue-100 px-4 py-3 hover:from-blue-100 hover:to-blue-200 transition-colors text-left"
                 >
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
                       <span
-                        className={`transform transition-transform ${
+                        className={`text-lg transform transition-transform shrink-0 ${
                           expandedCategory === group.category
                             ? "rotate-90"
                             : "rotate-0"
@@ -797,246 +737,187 @@ export default function ProductsClient() {
                       >
                         ▶
                       </span>
-                      <div>
-                        <h2
-                          className={`font-bold text-lg ${
+                      <div className="min-w-0">
+                        <h3
+                          className={`font-bold text-sm md:text-base truncate ${
                             group.category === "Uncategorized"
                               ? "text-red-700"
                               : "text-blue-700"
                           }`}
                         >
                           {group.category}
-                          {group.categoryType && (
-                            <span className="ml-2 text-sm font-normal text-gray-600 bg-gray-100 px-2 py-1 rounded">
-                              {group.categoryType}
-                            </span>
-                          )}
-                        </h2>
-                        <p className="text-sm text-gray-600">
-                          {group.productCount} products • {group.totalUnits}{" "}
-                          units sold
+                        </h3>
+                        <p className="text-xs text-gray-600 mt-0.5">
+                          {group.productCount} items • {group.totalUnits} sold
                         </p>
                       </div>
                     </div>
-
-                    {/* Summary Stats */}
-                    <div className="grid grid-cols-2 gap-3 sm:flex sm:gap-8 text-right">
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">Stock</p>
-                        <p className="font-semibold text-gray-900">
-                          {group.totalStockBalance}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-600 mb-1">
-                          Stock Value
-                        </p>
-                        <p className="font-semibold text-gray-900">
-                          RM {formatCurrency(group.totalStockValue)}
-                        </p>
-                      </div>
+                    <div className="text-right shrink-0 text-xs md:text-sm">
+                      <p className="font-semibold text-gray-900">
+                        RM {formatCurrency(group.totalStockValue)}
+                      </p>
+                      <p className="text-gray-500">
+                        {group.totalStockBalance} units
+                      </p>
                     </div>
                   </div>
                 </button>
 
-                {/* Products List - Expandable */}
+                {/* Products */}
                 {expandedCategory === group.category && (
-                  <div className="bg-white border-t border-gray-200">
-                    <div className="divide-y divide-gray-200 max-h-96 overflow-auto">
-                      {/* Header Row */}
-                      <div className="min-w-275 px-4 sm:px-6 py-3 bg-gray-50 grid grid-cols-12 gap-3 sticky top-0 text-xs font-semibold text-gray-700">
-                        <div className="col-span-1">SKU</div>
-                        <div className="col-span-3">Product Name</div>
-                        <div className="col-span-1 text-right">Price</div>
-                        <div className="col-span-1 text-right">Cost</div>
-                        <div className="col-span-1 text-right">Margin %</div>
-                        <div className="col-span-1 text-right">Stocks</div>
-                        <div className="col-span-1 text-right">Units Sold</div>
-                        <div className="col-span-2 text-right">
-                          Last Transaction
+                  <div className="border-t border-gray-200 divide-y divide-gray-100 max-h-80 overflow-y-auto">
+                    {group.products.map((product) => (
+                      <Link
+                        key={product.sku + product.name}
+                        href={`/products/${encodeURIComponent(product.sku)}`}
+                        className={`px-4 py-2.5 text-xs grid gap-2 transition-colors ${
+                          product.missingSkuWarning
+                            ? "bg-orange-50 hover:bg-orange-100"
+                            : product.unitsSold === 0
+                              ? "bg-yellow-50 hover:bg-yellow-100"
+                              : "hover:bg-gray-50"
+                        }`}
+                        style={{
+                          gridTemplateColumns:
+                            "minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(90px, 0.9fr)",
+                        }}
+                      >
+                        <div className="font-mono text-gray-600 truncate">
+                          {product.sku || "—"}
                         </div>
-                      </div>
-
-                      {/* Product Rows */}
-                      {group.products.map((product) => (
-                        <Link
-                          key={product.sku + product.name}
-                          href={`/products/${encodeURIComponent(product.sku)}`}
-                          className={`min-w-275 px-4 sm:px-6 py-3 grid grid-cols-12 gap-3 text-sm transition-colors ${
-                            product.missingSkuWarning
-                              ? "bg-orange-50 hover:bg-orange-100 border-l-2 border-orange-400"
-                              : product.unitsSold === 0
-                                ? "bg-yellow-50 hover:bg-yellow-100"
-                                : "hover:bg-gray-50"
-                          }`}
-                        >
-                          <div className="col-span-1 font-mono text-xs">
-                            {product.sku ? (
-                              <span className="text-gray-600">
-                                {product.sku}
-                              </span>
-                            ) : (
-                              <span className="text-orange-600 font-semibold"></span>
-                            )}
-                          </div>
-                          <div className="col-span-3 text-gray-900 truncate">
-                            <span className="hover:text-blue-600">
-                              {product.name}
-                            </span>
-                          </div>
-                          <div className="col-span-1 text-right text-gray-700">
-                            RM {formatCurrency(product.price)}
-                          </div>
-                          <div className="col-span-1 text-right text-gray-700">
-                            RM {formatCurrency(product.cost)}
-                          </div>
-                          <div
-                            className={`col-span-1 text-right font-semibold ${
-                              product.margin >= 0
-                                ? "text-green-700"
-                                : "text-red-700"
-                            }`}
-                          >
-                            {product.price > 0
-                              ? formatCurrency(
-                                  (product.margin / product.price) * 100,
-                                )
-                              : "0"}
-                            %
-                          </div>
-                          <div className="col-span-1 text-right font-semibold text-gray-900">
-                            {product.stockBalance || "—"}
-                          </div>
-                          <div className="col-span-1 text-right font-semibold">
-                            {product.unitsSold}
-                          </div>
-                          <div className="col-span-2 text-right text-gray-700">
-                            {product.lastTransactionDate || "—"}
-                          </div>
-                        </Link>
-                      ))}
-                    </div>
+                        <div className="text-gray-900 truncate font-medium">
+                          {product.name}
+                        </div>
+                        <div className="text-right text-gray-700">
+                          RM {formatCurrency(product.price)}
+                        </div>
+                        <div className="text-right text-gray-600">
+                          RM {formatCurrency(product.cost)}
+                        </div>
+                        <div className="text-right text-gray-600 truncate">
+                          {product.stockBalance}
+                        </div>
+                        <div className="text-right font-semibold text-gray-900 truncate">
+                          {product.unitsSold}
+                        </div>
+                        <div className="text-right text-gray-600 truncate">
+                          {product.lastTransactionDate || "—"}
+                        </div>
+                      </Link>
+                    ))}
                   </div>
                 )}
               </div>
-            ))}
+            ))}  
           </div>
         ) : (
-          // FLAT LIST VIEW (UNGROUPED)
-          <div className="border border-gray-200 rounded-lg overflow-x-auto">
-            <div className="divide-y divide-gray-200 max-h-full">
-              {/* Header Row */}
-              <div className="min-w-275 px-4 sm:px-6 py-3 bg-gray-50 grid grid-cols-12 gap-3 sticky top-0 text-xs font-semibold text-gray-700">
-                <div className="col-span-1">SKU</div>
-                <div className="col-span-3">Product Name</div>
-                <div className="col-span-1 text-right">Price</div>
-                <div className="col-span-1 text-right">Cost</div>
-                <div className="col-span-1 text-right">Margin %</div>
-                <div className="col-span-1 text-right">Stocks</div>
-                <div className="col-span-1 text-right">Units Sold</div>
-                <div className="col-span-2 text-right">Last Transaction</div>
+          // FLAT LIST VIEW
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="divide-y divide-gray-100 max-h-screen overflow-y-auto">
+              {/* Header */}
+              <div
+                className="px-4 py-2.5 bg-gray-50 grid gap-2 sticky top-0 text-xs font-semibold text-gray-700"
+                style={{
+                  gridTemplateColumns: "minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(90px, 0.9fr)"
+                }}
+              >
+                <div>SKU</div>
+                <div>Product</div>
+                <div className="text-right">Price</div>
+                <div className="text-right">Cost</div>
+                <div className="text-right">Stock</div>
+                <div className="text-right">Sold</div>
+                <div className="text-right">Last Sale</div>
               </div>
 
-              {/* All Products */}
+              {/* Products */}
               {categoryGroups.flatMap((group) =>
                 group.products.map((product) => (
                   <Link
                     key={product.sku + product.name}
                     href={`/products/${encodeURIComponent(product.sku)}`}
-                    className={`min-w-275 px-4 sm:px-6 py-3 grid grid-cols-12 gap-3 text-sm transition-colors ${
+                    className={`px-4 py-2.5 text-xs grid gap-2 transition-colors ${
                       product.missingSkuWarning
-                        ? "bg-orange-50 hover:bg-orange-100 border-l-2 border-orange-400"
+                        ? "bg-orange-50 hover:bg-orange-100"
                         : product.unitsSold === 0
                           ? "bg-yellow-50 hover:bg-yellow-100"
                           : "hover:bg-gray-50"
                     }`}
+                    style={{
+                      gridTemplateColumns: "minmax(80px, 0.8fr) minmax(150px, 1.5fr) minmax(70px, 0.7fr) minmax(70px, 0.7fr) minmax(60px, 0.6fr) minmax(60px, 0.6fr) minmax(90px, 0.9fr)"
+                    }}
                   >
-                    <div className="col-span-1 font-mono text-xs">
-                      {product.sku ? (
-                        <span className="text-gray-600">{product.sku}</span>
-                      ) : (
-                        <span className="text-orange-600 font-semibold"></span>
-                      )}
+                    <div className="font-mono text-gray-600 truncate">
+                      {product.sku || "—"}
                     </div>
-                    <div className="col-span-3 text-gray-900 truncate">
-                      <span className="hover:text-blue-600">
-                        {product.name}
-                      </span>
+                    <div className="text-gray-900 truncate font-medium">
+                      {product.name}
                     </div>
-                    <div className="col-span-1 text-right text-gray-700">
+                    <div className="text-right text-gray-700">
                       RM {formatCurrency(product.price)}
                     </div>
-                    <div className="col-span-1 text-right text-gray-700">
+                    <div className="text-right text-gray-600">
                       RM {formatCurrency(product.cost)}
                     </div>
-                    <div
-                      className={`col-span-1 text-right font-semibold ${
-                        product.margin >= 0 ? "text-green-700" : "text-red-700"
-                      }`}
-                    >
-                      {product.price > 0
-                        ? formatCurrency((product.margin / product.price) * 100)
-                        : "0"}
-                      %
+                    <div className="text-right text-gray-600 truncate">
+                      {product.stockBalance}
                     </div>
-                    <div className="col-span-1 text-right font-semibold text-gray-900">
-                      {product.stockBalance || "—"}
-                    </div>
-                    <div className="col-span-1 text-right font-semibold">
+                    <div className="text-right font-semibold text-gray-900 truncate">
                       {product.unitsSold}
                     </div>
-                    <div className="col-span-2 text-right text-gray-700">
+                    <div className="text-right text-gray-600 truncate">
                       {product.lastTransactionDate || "—"}
                     </div>
                   </Link>
-                )),
+                ))
               )}
             </div>
           </div>
         )}
 
-        {/* Summary Stats */}
-        <div className="mt-12 pt-8 border-t border-gray-200">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-blue-50 p-6 rounded-lg border-l-4 border-blue-500">
-              <p className="text-sm font-medium text-gray-700 mb-1">
-                Total Products
-              </p>
-              <p className="text-3xl font-bold text-blue-700">
-                {categoryGroups.reduce((sum, g) => sum + g.productCount, 0)}
-              </p>
-            </div>
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
+          <div className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow">
+            <p className="text-gray-600 text-xs font-medium mb-1">
+              Total Products
+            </p>
+            <p className="text-2xl font-bold text-gray-900">
+              {categoryGroups.reduce((sum, g) => sum + g.productCount, 0)}
+            </p>
+          </div>
 
-            <div className="bg-purple-50 p-6 rounded-lg border-l-4 border-purple-500">
-              <p className="text-sm font-medium text-gray-700 mb-1">
-                {groupByCategory ? "Total Categories" : "Showing All Products"}
-              </p>
-              <p className="text-3xl font-bold text-purple-700">
-                {groupByCategory ? categoryGroups.length : "All"}
-              </p>
-            </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow">
+            <p className="text-gray-600 text-xs font-medium mb-1">
+              {groupByCategory ? "Categories" : "Groups"}
+            </p>
+            <p className="text-2xl font-bold text-gray-900">
+              {groupByCategory
+                ? categoryGroups.length
+                : groupBySupplier
+                  ? supplierGroups.length
+                  : "—"}
+            </p>
+          </div>
 
-            <div className="bg-red-50 p-6 rounded-lg border-l-4 border-red-500">
-              <p className="text-sm font-medium text-gray-700 mb-1">
-                Products w/o Category
-              </p>
-              <p className="text-3xl font-bold text-red-700">
-                {categoryGroups.find((g) => g.category === "Uncategorized")
-                  ?.productCount || 0}
-              </p>
-            </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow">
+            <p className="text-gray-600 text-xs font-medium mb-1">
+              Total Stock
+            </p>
+            <p className="text-2xl font-bold text-gray-900">
+              {categoryGroups.reduce((sum, g) => sum + g.totalStockBalance, 0)}
+            </p>
+          </div>
 
-            <div className="bg-green-50 p-6 rounded-lg border-l-4 border-green-500">
-              <p className="text-sm font-medium text-gray-700 mb-1">
-                Total Revenue (TTM)
-              </p>
-              <p className="text-3xl font-bold text-green-700">
-                RM{" "}
-                {formatCurrency(
-                  categoryGroups.reduce((sum, g) => sum + g.totalRevenue, 0),
-                )}
-              </p>
-            </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow">
+            <p className="text-gray-600 text-xs font-medium mb-1">
+              Stock Value
+            </p>
+            <p className="text-2xl font-bold text-green-700">
+              RM{" "}
+              {formatCurrency(
+                categoryGroups.reduce((sum, g) => sum + g.totalStockValue, 0),
+              )}
+            </p>
           </div>
         </div>
       </div>
