@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type TimePeriod = "today" | "yesterday" | "week" | "month";
+type TimePeriod = "today" | "yesterday" | "week" | "month" | "custom";
 
 interface TransactionMetrics {
   totalSales: number;
@@ -97,6 +97,9 @@ type ShiftData = Shift | ApiShift;
 
 export default function SalesDashboardClient() {
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("today");
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
+  const [customSingleDay, setCustomSingleDay] = useState<boolean>(true);
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [shifts, setShifts] = useState<ShiftData[]>([]);
   const [employees, setEmployees] = useState<Record<string, string>>({}); // Map of employeeId to name
@@ -110,6 +113,11 @@ export default function SalesDashboardClient() {
 
   // Fetch data from APIs
   useEffect(() => {
+    // For custom period, wait until both dates are picked before fetching
+    if (timePeriod === "custom" && (!customStartDate || !customEndDate)) {
+      return;
+    }
+
     const fetchData = async () => {
       try {
         // Get today's date in Malaysia timezone (GMT+8)
@@ -126,7 +134,16 @@ export default function SalesDashboardClient() {
         let startDate = new Date(today);
         let endDate = new Date(today);
 
-        if (timePeriod === "yesterday") {
+        if (timePeriod === "custom") {
+          // Custom: user-selected start/end dates (YYYY-MM-DD strings, parsed as local dates)
+          const [sy, sm, sd] = customStartDate.split("-").map(Number);
+          const [ey, em, ed] = customEndDate.split("-").map(Number);
+          startDate = new Date(sy, sm - 1, sd);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(ey, em - 1, ed);
+          endDate.setDate(endDate.getDate() + 1); // Include end date to buffer the query
+          endDate.setHours(23, 59, 59, 999);
+        } else if (timePeriod === "yesterday") {
           // Yesterday: full day, but query with buffer to +1 day for API compatibility
           startDate = new Date(today);
           startDate.setDate(today.getDate() - 1);
@@ -228,7 +245,73 @@ export default function SalesDashboardClient() {
     };
 
     fetchData();
-  }, [timePeriod]);
+  }, [timePeriod, customStartDate, customEndDate]);
+
+  // Compute the display label for the currently selected time period
+  const dateRangeLabel = useMemo(() => {
+    // Get today's date in Malaysia timezone (GMT+8)
+    const utcNow = new Date();
+    const malaysiaOffset = 8 * 60;
+    const utcOffset = utcNow.getTimezoneOffset();
+    const offsetDifference = malaysiaOffset + utcOffset;
+    const today = new Date(utcNow.getTime() + offsetDifference * 60 * 1000);
+    today.setHours(0, 0, 0, 0);
+
+    const fmt = (d: Date, opts: Intl.DateTimeFormatOptions) =>
+      d.toLocaleDateString("en-MY", opts);
+
+    if (timePeriod === "yesterday") {
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      return fmt(yesterday, {
+        weekday: "short",
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+
+    if (timePeriod === "week") {
+      const dayOfWeek = today.getDay();
+      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - daysToMonday);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      return `${fmt(monday, { month: "short", day: "numeric" })} - ${fmt(sunday, { month: "short", day: "numeric", year: "numeric" })}`;
+    }
+
+    if (timePeriod === "month") {
+      return fmt(today, { month: "long", year: "numeric" });
+    }
+
+    if (timePeriod === "custom") {
+      if (!customStartDate || !customEndDate) {
+        return "Select a date range";
+      }
+      const [sy, sm, sd] = customStartDate.split("-").map(Number);
+      const [ey, em, ed] = customEndDate.split("-").map(Number);
+      const start = new Date(sy, sm - 1, sd);
+      const end = new Date(ey, em - 1, ed);
+      if (customStartDate === customEndDate) {
+        return fmt(start, {
+          weekday: "short",
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+      }
+      return `${fmt(start, { month: "short", day: "numeric" })} - ${fmt(end, { month: "short", day: "numeric", year: "numeric" })}`;
+    }
+
+    // today
+    return fmt(today, {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }, [timePeriod, customStartDate, customEndDate]);
 
   // Helper to check if transaction is API format
   const isApiTransaction = (t: TransactionData): t is ApiTransaction =>
@@ -344,6 +427,13 @@ export default function SalesDashboardClient() {
               txMalaysiaTime.getFullYear() === today.getFullYear() &&
               txMalaysiaTime.getMonth() === today.getMonth()
             );
+          } else if (timePeriod === "custom") {
+            if (!customStartDate || !customEndDate) return false;
+            const [sy, sm, sd] = customStartDate.split("-").map(Number);
+            const [ey, em, ed] = customEndDate.split("-").map(Number);
+            const customStart = new Date(sy, sm - 1, sd);
+            const customEnd = new Date(ey, em - 1, ed);
+            return txDateOnly >= customStart && txDateOnly <= customEnd;
           }
           return true;
         } catch {
@@ -398,7 +488,7 @@ export default function SalesDashboardClient() {
         t.Item !== ""
       );
     });
-  }, [transactions, timePeriod]);
+  }, [transactions, timePeriod, customStartDate, customEndDate]);
 
   // Calculate metrics
   const metrics = useMemo<TransactionMetrics>(() => {
@@ -874,19 +964,16 @@ export default function SalesDashboardClient() {
                 Sales Dashboard
               </h1>
               <p className="text-xs md:text-sm text-gray-500 mt-0.5">
-                {new Date().toLocaleDateString("en-MY", {
-                  weekday: "short",
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })}
+                {dateRangeLabel}
               </p>
             </div>
 
-            {/* Time Period Selector - Compact */}
-            <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-lg">
-              {(["today", "yesterday", "week", "month"] as const).map(
-                (period) => (
+            <div className="flex flex-col items-start md:items-end gap-2">
+              {/* Time Period Selector - Compact */}
+              <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-lg">
+                {(
+                  ["today", "yesterday", "week", "month", "custom"] as const
+                ).map((period) => (
                   <button
                     key={period}
                     onClick={() => setTimePeriod(period)}
@@ -900,7 +987,70 @@ export default function SalesDashboardClient() {
                       ? "Yest."
                       : period.charAt(0).toUpperCase() + period.slice(1)}
                   </button>
-                ),
+                ))}
+              </div>
+
+              {/* Custom Date Range Pickers */}
+              {timePeriod === "custom" && (
+                <div className="flex flex-col items-start md:items-end gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomSingleDay(true);
+                        if (customStartDate) setCustomEndDate(customStartDate);
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                        customSingleDay
+                          ? "bg-orange-100 text-orange-700"
+                          : "text-gray-400 hover:text-gray-600"
+                      }`}
+                    >
+                      Single date
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCustomSingleDay(false)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                        !customSingleDay
+                          ? "bg-orange-100 text-orange-700"
+                          : "text-gray-400 hover:text-gray-600"
+                      }`}
+                    >
+                      Date range
+                    </button>
+                  </div>
+
+                  {customSingleDay ? (
+                    <input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => {
+                        setCustomStartDate(e.target.value);
+                        setCustomEndDate(e.target.value);
+                      }}
+                      className="text-xs md:text-sm border border-gray-300 rounded-md px-2 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                    />
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        max={customEndDate || undefined}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="text-xs md:text-sm border border-gray-300 rounded-md px-2 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                      />
+                      <span className="text-gray-400 text-xs">to</span>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        min={customStartDate || undefined}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="text-xs md:text-sm border border-gray-300 rounded-md px-2 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                      />
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>

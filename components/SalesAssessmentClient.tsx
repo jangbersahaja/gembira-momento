@@ -120,6 +120,17 @@ const formatNumber = (value: number) => {
 /** Returns yyyy-MM-dd string for an input[type=date] value */
 const toInputDate = (d: Date) => d.toISOString().slice(0, 10);
 
+/** Formats a yyyy-MM-dd string into e.g. "Tue, 14 Jul 2026" */
+const formatDailyDate = (dateString: string) => {
+  const d = fromInputDate(dateString);
+  return d.toLocaleDateString("en-MY", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+
 /** Parses an input[type=date] string to a Date at midnight local time */
 const fromInputDate = (s: string) => {
   const [y, m, d] = s.split("-").map(Number);
@@ -1301,7 +1312,7 @@ export default function SalesAssessmentClient() {
                           }) => (
                             <tr key={date} className="hover:bg-gray-50">
                               <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
-                                {date}
+                                {formatDailyDate(date)}
                               </td>
                               <td className="px-3 md:px-4 py-2 md:py-3">
                                 {transactions}
