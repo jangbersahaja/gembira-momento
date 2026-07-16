@@ -5,7 +5,7 @@ import {
   useProducts,
   useTransactions,
 } from "@/lib/useStorehubApi";
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import products from "../data/products";
 import {
   DayOfWeekTrendCharts,
@@ -705,6 +705,16 @@ const groupBySupplier = (
       total: number;
       quantity: number;
       cost: number;
+      products: Map<
+        string, // key: product name
+        {
+          name: string;
+          sku: string;
+          quantity: number;
+          total: number;
+          cost: number;
+        }
+      >;
     }
   >();
 
@@ -774,6 +784,7 @@ const groupBySupplier = (
           total: 0,
           quantity: 0,
           cost: 0,
+          products: new Map(),
         });
       }
 
@@ -782,6 +793,22 @@ const groupBySupplier = (
       current.total += subtotal; // API already provides net total
       current.quantity += quantity;
       current.cost += totalCost;
+
+      // Track per-product breakdown within this supplier
+      const productKey = name || sku || "(Unknown product)";
+      if (!current.products.has(productKey)) {
+        current.products.set(productKey, {
+          name: productKey,
+          sku,
+          quantity: 0,
+          total: 0,
+          cost: 0,
+        });
+      }
+      const productEntry = current.products.get(productKey)!;
+      productEntry.quantity += quantity;
+      productEntry.total += subtotal;
+      productEntry.cost += totalCost;
     }
   }
 
@@ -794,17 +821,43 @@ const groupBySupplier = (
     cost: number;
     profit: number;
     margin: number;
+    products: Array<{
+      name: string;
+      sku: string;
+      quantity: number;
+      total: number;
+      cost: number;
+      profit: number;
+      margin: number;
+    }>;
   }> = Array.from(supplierTypeMap.values())
-    .map(({ supplier, supplyType, subtotal, total, quantity, cost }) => ({
-      supplier,
-      supplyType,
-      subtotal,
-      total,
-      quantity,
-      cost,
-      profit: total - cost,
-      margin: total > 0 ? ((total - cost) / total) * 100 : 0,
-    }))
+    .map(
+      ({
+        supplier,
+        supplyType,
+        subtotal,
+        total,
+        quantity,
+        cost,
+        products: productMap,
+      }) => ({
+        supplier,
+        supplyType,
+        subtotal,
+        total,
+        quantity,
+        cost,
+        profit: total - cost,
+        margin: total > 0 ? ((total - cost) / total) * 100 : 0,
+        products: Array.from(productMap.values())
+          .map((p) => ({
+            ...p,
+            profit: p.total - p.cost,
+            margin: p.total > 0 ? ((p.total - p.cost) / p.total) * 100 : 0,
+          }))
+          .sort((a, b) => b.total - a.total),
+      }),
+    )
     .sort((a, b) => {
       // Sort by total sales (highest first)
       if (b.total !== a.total) {
@@ -840,7 +893,22 @@ export default function SalesAssessmentClient() {
   const [customTo, setCustomTo] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [timeView, setTimeView] = useState<"hourly" | "daily">("hourly");
+  const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(
+    new Set(),
+  );
   const reportRef = useRef<HTMLDivElement>(null);
+
+  const toggleSupplierExpanded = (key: string) => {
+    setExpandedSuppliers((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
 
   // Fetch API data
   const { data: apiProductsData, loading: productsLoading } = useProducts();
@@ -2135,32 +2203,111 @@ export default function SalesAssessmentClient() {
                               cost,
                               profit,
                               margin,
-                            }) => (
-                              <tr key={supplier} className="hover:bg-gray-50">
-                                <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
-                                  {supplier}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3">
-                                  {formatNumber(quantity)}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3">
-                                  RM {formatCurrency(subtotal)}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-medium">
-                                  RM {formatCurrency(total)}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3 text-red-600">
-                                  RM {formatCurrency(cost)}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-green-600">
-                                  RM {formatCurrency(profit)}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600">
-                                  {margin.toFixed(1)}%
-                                </td>
-                              </tr>
-                            ),
+                              products: supplierProducts,
+                            }) => {
+                              const rowKey = `Consignment|${supplier}`;
+                              const isExpanded = expandedSuppliers.has(rowKey);
+                              return (
+                                <Fragment key={rowKey}>
+                                  <tr
+                                    onClick={() =>
+                                      toggleSupplierExpanded(rowKey)
+                                    }
+                                    className="hover:bg-gray-50 cursor-pointer"
+                                  >
+                                    <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
+                                      <span className="inline-flex items-center gap-2">
+                                        <span
+                                          className={`inline-block transition-transform text-gray-400 text-[10px] ${
+                                            isExpanded ? "rotate-90" : ""
+                                          }`}
+                                        >
+                                          ▶
+                                        </span>
+                                        {supplier}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3">
+                                      {formatNumber(quantity)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3">
+                                      RM {formatCurrency(subtotal)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-medium">
+                                      RM {formatCurrency(total)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3 text-red-600">
+                                      RM {formatCurrency(cost)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-green-600">
+                                      RM {formatCurrency(profit)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600">
+                                      {margin.toFixed(1)}%
+                                    </td>
+                                  </tr>
+                                  {isExpanded && (
+                                    <tr key={`${rowKey}-detail`}>
+                                      <td
+                                        colSpan={7}
+                                        className="px-3 md:px-4 py-3 bg-gray-50"
+                                      >
+                                        <table className="w-full divide-y divide-gray-200 text-left text-[11px] md:text-xs">
+                                          <thead>
+                                            <tr>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Product
+                                              </th>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Units
+                                              </th>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Sales RM
+                                              </th>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Cost RM
+                                              </th>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Profit RM
+                                              </th>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Margin %
+                                              </th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-gray-200">
+                                            {supplierProducts.map((p) => (
+                                              <tr key={p.name}>
+                                                <td className="px-2 md:px-3 py-1.5 text-gray-800">
+                                                  {p.name}
+                                                </td>
+                                                <td className="px-2 md:px-3 py-1.5">
+                                                  {formatNumber(p.quantity)}
+                                                </td>
+                                                <td className="px-2 md:px-3 py-1.5">
+                                                  RM {formatCurrency(p.total)}
+                                                </td>
+                                                <td className="px-2 md:px-3 py-1.5 text-red-600">
+                                                  RM {formatCurrency(p.cost)}
+                                                </td>
+                                                <td className="px-2 md:px-3 py-1.5 text-green-600">
+                                                  RM {formatCurrency(p.profit)}
+                                                </td>
+                                                <td className="px-2 md:px-3 py-1.5 text-blue-600">
+                                                  {p.margin.toFixed(1)}%
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </Fragment>
+                              );
+                            },
                           )}
+
                         <tr className="bg-gray-100 font-semibold text-xs md:text-sm">
                           <td className="px-3 md:px-4 py-2 md:py-3">
                             Consignment Subtotal
@@ -2266,32 +2413,111 @@ export default function SalesAssessmentClient() {
                               cost,
                               profit,
                               margin,
-                            }) => (
-                              <tr key={supplier} className="hover:bg-gray-50">
-                                <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
-                                  {supplier}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3">
-                                  {formatNumber(quantity)}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3">
-                                  RM {formatCurrency(subtotal)}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-medium">
-                                  RM {formatCurrency(total)}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3 text-red-600">
-                                  RM {formatCurrency(cost)}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-green-600">
-                                  RM {formatCurrency(profit)}
-                                </td>
-                                <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600">
-                                  {margin.toFixed(1)}%
-                                </td>
-                              </tr>
-                            ),
+                              products: supplierProducts,
+                            }) => {
+                              const rowKey = `Outright|${supplier}`;
+                              const isExpanded = expandedSuppliers.has(rowKey);
+                              return (
+                                <Fragment key={rowKey}>
+                                  <tr
+                                    onClick={() =>
+                                      toggleSupplierExpanded(rowKey)
+                                    }
+                                    className="hover:bg-gray-50 cursor-pointer"
+                                  >
+                                    <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-gray-900">
+                                      <span className="inline-flex items-center gap-2">
+                                        <span
+                                          className={`inline-block transition-transform text-gray-400 text-[10px] ${
+                                            isExpanded ? "rotate-90" : ""
+                                          }`}
+                                        >
+                                          ▶
+                                        </span>
+                                        {supplier}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3">
+                                      {formatNumber(quantity)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3">
+                                      RM {formatCurrency(subtotal)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600 font-medium">
+                                      RM {formatCurrency(total)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3 text-red-600">
+                                      RM {formatCurrency(cost)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3 font-medium text-green-600">
+                                      RM {formatCurrency(profit)}
+                                    </td>
+                                    <td className="px-3 md:px-4 py-2 md:py-3 text-blue-600">
+                                      {margin.toFixed(1)}%
+                                    </td>
+                                  </tr>
+                                  {isExpanded && (
+                                    <tr key={`${rowKey}-detail`}>
+                                      <td
+                                        colSpan={7}
+                                        className="px-3 md:px-4 py-3 bg-gray-50"
+                                      >
+                                        <table className="w-full divide-y divide-gray-200 text-left text-[11px] md:text-xs">
+                                          <thead>
+                                            <tr>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Product
+                                              </th>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Units
+                                              </th>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Sales RM
+                                              </th>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Cost RM
+                                              </th>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Profit RM
+                                              </th>
+                                              <th className="px-2 md:px-3 py-1.5 font-semibold text-gray-600">
+                                                Margin %
+                                              </th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-gray-200">
+                                            {supplierProducts.map((p) => (
+                                              <tr key={p.name}>
+                                                <td className="px-2 md:px-3 py-1.5 text-gray-800">
+                                                  {p.name}
+                                                </td>
+                                                <td className="px-2 md:px-3 py-1.5">
+                                                  {formatNumber(p.quantity)}
+                                                </td>
+                                                <td className="px-2 md:px-3 py-1.5">
+                                                  RM {formatCurrency(p.total)}
+                                                </td>
+                                                <td className="px-2 md:px-3 py-1.5 text-red-600">
+                                                  RM {formatCurrency(p.cost)}
+                                                </td>
+                                                <td className="px-2 md:px-3 py-1.5 text-green-600">
+                                                  RM {formatCurrency(p.profit)}
+                                                </td>
+                                                <td className="px-2 md:px-3 py-1.5 text-blue-600">
+                                                  {p.margin.toFixed(1)}%
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </Fragment>
+                              );
+                            },
                           )}
+
                         <tr className="bg-gray-100 font-semibold text-xs md:text-sm">
                           <td className="px-3 md:px-4 py-2 md:py-3">
                             Outright Subtotal
