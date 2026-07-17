@@ -1212,10 +1212,10 @@ export default function MonthlyReportClient() {
                 />
                 <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" />
                 <Tooltip
-                  formatter={(value: unknown, name: string) =>
+                  formatter={(value: unknown, name: unknown) =>
                     name === "Gap (base)"
                       ? [null, null]
-                      : [`RM ${Number(value).toFixed(2)}`, name]
+                      : [`RM ${Number(value).toFixed(2)}`, String(name)]
                   }
                   contentStyle={{
                     borderRadius: "8px",
@@ -1223,23 +1223,25 @@ export default function MonthlyReportClient() {
                   }}
                 />
                 <Legend
-                  payload={[
-                    {
-                      value: "Cumulative Sales",
-                      type: "line",
-                      color: "#2563eb",
-                    },
-                    {
-                      value: "Cumulative Cost",
-                      type: "line",
-                      color: "#ef4444",
-                    },
-                    {
-                      value: "Net profit/loss gap",
-                      type: "rect",
-                      color: "#10b981",
-                    },
-                  ]}
+                  {...({
+                    payload: [
+                      {
+                        value: "Cumulative Sales",
+                        type: "line",
+                        color: "#2563eb",
+                      },
+                      {
+                        value: "Cumulative Cost",
+                        type: "line",
+                        color: "#ef4444",
+                      },
+                      {
+                        value: "Net profit/loss gap",
+                        type: "rect",
+                        color: "#10b981",
+                      },
+                    ],
+                  } as React.ComponentProps<typeof Legend>)}
                 />
                 {reportData.breakEvenDate && (
                   <ReferenceLine
