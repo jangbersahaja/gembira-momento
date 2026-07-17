@@ -1,9 +1,11 @@
 "use client";
 
 import {
+  Area,
   Bar,
   BarChart,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
   LineChart,
@@ -53,6 +55,12 @@ export type StaffPoint = {
   margin?: number;
 };
 
+export type CumulativePoint = {
+  label: string;
+  actual: number;
+  average: number;
+};
+
 const TooltipContent = ({
   active,
   payload,
@@ -69,7 +77,7 @@ const TooltipContent = ({
       {payload.map((p) => (
         <p key={p.name} style={{ color: p.color }}>
           {p.name}:{" "}
-          {p.name === "Sales (RM)" ? `RM ${p.value.toFixed(2)}` : p.value}
+          {p.name.includes("RM") ? `RM ${p.value.toFixed(2)}` : p.value}
         </p>
       ))}
     </div>
@@ -408,4 +416,57 @@ function formatRangeLabel(hour: number) {
   const start = hour.toString().padStart(2, "0");
   const end = ((hour + 1) % 24).toString().padStart(2, "0");
   return `${start}:00-${end}:00`;
+}
+
+export function CumulativeSalesChart({ data }: { data: CumulativePoint[] }) {
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <ComposedChart
+        data={data}
+        margin={{ top: 8, right: 16, left: 8, bottom: 48 }}
+      >
+        <defs>
+          <linearGradient id="avgCumulativeFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#9ca3af" stopOpacity={0.3} />
+            <stop offset="95%" stopColor="#9ca3af" stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+        <XAxis
+          dataKey="label"
+          tick={{ fontSize: 11 }}
+          angle={-40}
+          textAnchor="end"
+          interval={0}
+        />
+        <YAxis
+          tickFormatter={(v) => `RM${v}`}
+          tick={{ fontSize: 11 }}
+          width={60}
+        />
+        <Tooltip content={<TooltipContent />} />
+        <Legend wrapperStyle={{ paddingTop: 56, fontSize: 12 }} />
+        <Area
+          type="monotone"
+          dataKey="average"
+          name="Average Cumulative (RM)"
+          stroke="#9ca3af"
+          strokeWidth={2}
+          strokeDasharray="5 5"
+          fill="url(#avgCumulativeFill)"
+          dot={false}
+          isAnimationActive={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="actual"
+          name="Cumulative Sales (RM)"
+          stroke="#f97316"
+          strokeWidth={2}
+          dot={false}
+          isAnimationActive={false}
+        />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
 }

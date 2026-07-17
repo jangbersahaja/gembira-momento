@@ -1,5 +1,6 @@
 "use client";
 
+import { CumulativeSalesChart } from "@/components/SalesChart";
 import { useEffect, useMemo, useState } from "react";
 
 type TimePeriod = "today" | "yesterday" | "week" | "month" | "custom";
@@ -101,6 +102,9 @@ export default function SalesDashboardClient() {
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [customSingleDay, setCustomSingleDay] = useState<boolean>(true);
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
+  const [historicalTransactions, setHistoricalTransactions] = useState<
+    TransactionData[]
+  >([]);
   const [shifts, setShifts] = useState<ShiftData[]>([]);
   const [employees, setEmployees] = useState<Record<string, string>>({}); // Map of employeeId to name
 
@@ -246,6 +250,45 @@ export default function SalesDashboardClient() {
 
     fetchData();
   }, [timePeriod, customStartDate, customEndDate]);
+
+  // Fetch a historical baseline (last ~90 completed days) once, used to compute
+  // the "average cumulative sales" comparison line. Excludes today since it's
+  // incomplete and would skew the average.
+  useEffect(() => {
+    const fetchHistoricalBaseline = async () => {
+      try {
+        const utcNow = new Date();
+        const malaysiaOffset = 8 * 60;
+        const utcOffset = utcNow.getTimezoneOffset();
+        const offsetDifference = malaysiaOffset + utcOffset;
+        const today = new Date(utcNow.getTime() + offsetDifference * 60 * 1000);
+        today.setHours(0, 0, 0, 0);
+
+        const end = new Date(today);
+        end.setDate(end.getDate() - 1); // exclude today (incomplete day)
+        const start = new Date(end);
+        start.setDate(start.getDate() - 89); // ~90 day baseline window
+
+        const formatDate = (d: Date) => {
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, "0");
+          const day = String(d.getDate()).padStart(2, "0");
+          return `${year}-${month}-${day}`;
+        };
+
+        const res = await fetch(
+          `/api/storehub/transactions?startDate=${formatDate(start)}&endDate=${formatDate(end)}`,
+        );
+        const data = await res.json();
+        setHistoricalTransactions(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.warn("Failed to fetch historical baseline:", error);
+        setHistoricalTransactions([]);
+      }
+    };
+
+    fetchHistoricalBaseline();
+  }, []);
 
   // Compute the display label for the currently selected time period
   const dateRangeLabel = useMemo(() => {
@@ -736,6 +779,159 @@ export default function SalesDashboardClient() {
       .sort((a, b) => b.total - a.total);
   }, [filteredTransactions]);
 
+  // Whether the currently selected period is effectively a single day.
+  // Hourly cumulative comparisons only make sense for a single day; for
+  // multi-day ranges (week/month/custom range) we fall back to a
+  // day-by-day cumulative view instead.
+  const isSingleDayView = useMemo(() => {
+    if (timePeriod === "today" || timePeriod === "yesterday") return true;
+    if (timePeriod === "custom") {
+      return customSingleDay || customStartDate === customEndDate;
+    }
+    return false;
+  }, [timePeriod, customSingleDay, customStartDate, customEndDate]);
+
+  // Cumulative sales trend: actual running total vs an average baseline.
+  // - Single day view: cumulative sales by hour vs the average cumulative
+  //   sales at each hour, computed from the last ~90 days.
+  // - Multi-day range view: cumulative sales by day vs the "expected" pace
+  //   line built from the average daily sales over the last ~90 days.
+  const cumulativeChartData = useMemo(() => {
+    const malaysiaOffset = 8 * 60;
+    const utcOffset = new Date().getTimezoneOffset();
+    const offsetDifference = malaysiaOffset + utcOffset;
+
+    const getAmount = (t: TransactionData): number => {
+      if (isApiTransaction(t)) return t.total;
+      if (isCsvTransaction(t)) return parseFloat(t.SubTotal || "0");
+      return 0;
+    };
+
+    const getDateKeyAndHour = (
+      t: TransactionData,
+    ): { key: string; hour: number } | null => {
+      try {
+        if (isApiTransaction(t)) {
+          const d = new Date(t.timestamp);
+          const my = new Date(d.getTime() + offsetDifference * 60 * 1000);
+          const key = `${my.getFullYear()}-${String(my.getMonth() + 1).padStart(2, "0")}-${String(my.getDate()).padStart(2, "0")}`;
+          return { key, hour: my.getHours() };
+        }
+        if (isCsvTransaction(t)) {
+          const d = parseDate(t.Time);
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          const timePart = t.Time.split(" ")[1];
+          const hour = timePart ? parseInt(timePart.split(":")[0], 10) : 0;
+          return { key, hour };
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    };
+
+    if (isSingleDayView) {
+      const START_HOUR = 9;
+      const END_HOUR = 23;
+
+      // Actual hourly totals for the selected day
+      const hourTotals = new Map<number, number>();
+      filteredTransactions.forEach((t) => {
+        const info = getDateKeyAndHour(t);
+        if (!info) return;
+        hourTotals.set(
+          info.hour,
+          (hourTotals.get(info.hour) || 0) + getAmount(t),
+        );
+      });
+
+      // Historical per-day hourly cumulative totals, then averaged per hour
+      const dayHourTotals = new Map<string, Map<number, number>>();
+      historicalTransactions.forEach((t) => {
+        const info = getDateKeyAndHour(t);
+        if (!info) return;
+        if (!dayHourTotals.has(info.key)) {
+          dayHourTotals.set(info.key, new Map());
+        }
+        const m = dayHourTotals.get(info.key)!;
+        m.set(info.hour, (m.get(info.hour) || 0) + getAmount(t));
+      });
+
+      const numDays = dayHourTotals.size || 1;
+      const avgHourCumulativeSum = new Map<number, number>();
+      dayHourTotals.forEach((hourMap) => {
+        let cumulative = 0;
+        for (let h = START_HOUR; h <= END_HOUR; h++) {
+          cumulative += hourMap.get(h) || 0;
+          avgHourCumulativeSum.set(
+            h,
+            (avgHourCumulativeSum.get(h) || 0) + cumulative,
+          );
+        }
+      });
+
+      let runningActual = 0;
+      const data = [];
+      for (let h = START_HOUR; h <= END_HOUR; h++) {
+        runningActual += hourTotals.get(h) || 0;
+        data.push({
+          label: `${h.toString().padStart(2, "0")}:00`,
+          actual: Math.round(runningActual * 100) / 100,
+          average:
+            Math.round(((avgHourCumulativeSum.get(h) || 0) / numDays) * 100) /
+            100,
+        });
+      }
+
+      return { mode: "hourly" as const, data };
+    }
+
+    // Multi-day range view: cumulative sales by day
+    const dayTotals = new Map<string, number>();
+    filteredTransactions.forEach((t) => {
+      const info = getDateKeyAndHour(t);
+      if (!info) return;
+      dayTotals.set(info.key, (dayTotals.get(info.key) || 0) + getAmount(t));
+    });
+    const sortedDays = Array.from(dayTotals.keys()).sort();
+
+    // Average daily sales from the historical baseline, used to build an
+    // "expected pace" straight line for comparison
+    const histDayTotals = new Map<string, number>();
+    historicalTransactions.forEach((t) => {
+      const info = getDateKeyAndHour(t);
+      if (!info) return;
+      histDayTotals.set(
+        info.key,
+        (histDayTotals.get(info.key) || 0) + getAmount(t),
+      );
+    });
+    const histValues = Array.from(histDayTotals.values());
+    const avgDailySales =
+      histValues.length > 0
+        ? histValues.reduce((a, b) => a + b, 0) / histValues.length
+        : 0;
+
+    let runningActual = 0;
+    let runningAvg = 0;
+    const data = sortedDays.map((key) => {
+      runningActual += dayTotals.get(key) || 0;
+      runningAvg += avgDailySales;
+      const [y, m, d] = key.split("-").map(Number);
+      const label = new Date(y, m - 1, d).toLocaleDateString("en-MY", {
+        month: "short",
+        day: "numeric",
+      });
+      return {
+        label,
+        actual: Math.round(runningActual * 100) / 100,
+        average: Math.round(runningAvg * 100) / 100,
+      };
+    });
+
+    return { mode: "daily" as const, data };
+  }, [isSingleDayView, filteredTransactions, historicalTransactions]);
+
   // Get staff on duty
   const staffOnDuty = useMemo<StaffMember[]>(() => {
     if (!Array.isArray(shifts) || shifts.length === 0) {
@@ -1160,98 +1356,129 @@ export default function SalesDashboardClient() {
           </div>
         </div>
 
-        {/* Top Products and Staff */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          {/* Top Products */}
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">
-              Top Products
-            </h3>
-            {topProducts.length > 0 ? (
-              <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
-                {topProducts.slice(0, 10).map((product, idx) => (
+        {/* Cumulative Sales Trend */}
+        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-1">
+            Cumulative Sales{" "}
+            {cumulativeChartData.mode === "hourly" ? "by Hour" : "by Day"}
+          </h3>
+          <p className="text-xs text-gray-500 mb-3">
+            {cumulativeChartData.mode === "hourly"
+              ? "Running total for the selected day vs the average cumulative sales at each hour (based on the last ~90 days)"
+              : "Running total across the selected period vs the expected pace based on average daily sales (last ~90 days). Note: for longer ranges this compares day-by-day totals, not hour-by-hour."}
+          </p>
+          {cumulativeChartData.data.length > 0 ? (
+            <CumulativeSalesChart data={cumulativeChartData.data} />
+          ) : (
+            <p className="text-gray-400 text-center py-8 text-xs">
+              Not enough data to build this chart
+            </p>
+          )}
+        </div>
+
+        {/* Products Sold */}
+        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">
+            Products Sold
+          </h3>
+          {topProducts.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 max-h-96 overflow-y-auto pr-2">
+              {(() => {
+                const half = Math.ceil(topProducts.length / 2);
+                const columns = [
+                  topProducts.slice(0, half),
+                  topProducts.slice(half),
+                ];
+                return columns.map((column, colIdx) => (
+                  <div key={colIdx} className="space-y-2">
+                    {column.map((product, i) => {
+                      const idx = colIdx * half + i;
+                      return (
+                        <div
+                          key={product.sku}
+                          className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0 hover:bg-gray-50 p-1.5 rounded transition"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="shrink-0 w-5 h-5 bg-orange-500 text-white rounded-full text-center text-xs font-bold">
+                                {idx + 1}
+                              </span>
+                              <p className="font-medium text-gray-900 text-xs truncate">
+                                {product.name}
+                              </p>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              {product.quantity.toFixed(0)} units
+                            </p>
+                          </div>
+                          <div className="text-right ml-2 shrink-0">
+                            <p className="font-semibold text-gray-900 text-xs">
+                              {formatCurrency(product.total)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ));
+              })()}
+            </div>
+          ) : (
+            <p className="text-gray-400 text-center py-4 text-xs">
+              No sales data
+            </p>
+          )}
+        </div>
+
+        {/* Staff On Duty */}
+        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">
+            Staff On Duty
+          </h3>
+          {staffOnDuty.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 max-h-80 overflow-y-auto pr-2">
+              {staffOnDuty.map((staff) => {
+                const isActive = staff.status === "on-duty";
+                return (
                   <div
-                    key={product.sku}
-                    className="flex items-center justify-between border-b border-gray-100 pb-2 last:border-0 hover:bg-gray-50 p-1.5 rounded transition"
+                    key={staff.name}
+                    className={`flex items-center justify-between p-2 rounded-lg transition ${
+                      isActive
+                        ? "bg-green-50 border border-green-200"
+                        : "bg-gray-50 border border-gray-200"
+                    }`}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="shrink-0 w-5 h-5 bg-orange-500 text-white rounded-full text-center text-xs font-bold">
-                          {idx + 1}
-                        </span>
+                        <div
+                          className={`shrink-0 w-4 h-4 rounded-full ${
+                            isActive ? "bg-green-500" : "bg-gray-300"
+                          }`}
+                        />
                         <p className="font-medium text-gray-900 text-xs truncate">
-                          {product.name}
+                          {staff.name}
                         </p>
+                        <span className="text-xs text-gray-500">
+                          {staff.totalHours || 0}h
+                        </span>
                       </div>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {product.quantity.toFixed(0)} units
-                      </p>
                     </div>
-                    <div className="text-right ml-2 shrink-0">
-                      <p className="font-semibold text-gray-900 text-xs">
-                        {formatCurrency(product.total)}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-gray-400 text-center py-4 text-xs">
-                No sales data
-              </p>
-            )}
-          </div>
-
-          {/* Staff On Duty */}
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">
-              Staff On Duty
-            </h3>
-            {staffOnDuty.length > 0 ? (
-              <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
-                {staffOnDuty.map((staff) => {
-                  const isActive = staff.status === "on-duty";
-                  return (
-                    <div
-                      key={staff.name}
-                      className={`flex items-center justify-between p-2 rounded-lg transition ${
+                    <span
+                      className={`text-xs font-semibold px-2 py-0.5 rounded-md shrink-0 ml-1 ${
                         isActive
-                          ? "bg-green-50 border border-green-200"
-                          : "bg-gray-50 border border-gray-200"
+                          ? "bg-green-100 text-green-800"
+                          : "bg-gray-100 text-gray-600"
                       }`}
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <div
-                            className={`shrink-0 w-4 h-4 rounded-full ${
-                              isActive ? "bg-green-500" : "bg-gray-300"
-                            }`}
-                          />
-                          <p className="font-medium text-gray-900 text-xs truncate">
-                            {staff.name}
-                          </p>
-                          <span className="text-xs text-gray-500">
-                            {staff.totalHours || 0}h
-                          </span>
-                        </div>
-                      </div>
-                      <span
-                        className={`text-xs font-semibold px-2 py-0.5 rounded-md shrink-0 ml-1 ${
-                          isActive
-                            ? "bg-green-100 text-green-800"
-                            : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {isActive ? "Active" : "Off"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-gray-400 text-center py-4 text-xs">No staff</p>
-            )}
-          </div>
+                      {isActive ? "Active" : "Off"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-gray-400 text-center py-4 text-xs">No staff</p>
+          )}
         </div>
 
         {/* Recent Transactions */}

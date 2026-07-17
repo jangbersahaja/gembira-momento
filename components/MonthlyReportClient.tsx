@@ -10,10 +10,12 @@ import { toCanvas } from "html-to-image";
 import jsPDF from "jspdf";
 import { useMemo, useRef, useState } from "react";
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
-  LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -38,6 +40,14 @@ const formatCurrency = (value: number) => {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+};
+
+// Format a break duration in minutes/hours as a short readable string,
+// e.g. "45 min" or "1.25 hrs".
+const formatDuration = (hours: number): string => {
+  if (hours <= 0) return "0 min";
+  if (hours < 1) return `${Math.round(hours * 60)} min`;
+  return `${hours.toFixed(2)} hrs`;
 };
 
 // Parses shift date strings in "MM/DD/YYYY HH:mm" format
@@ -82,6 +92,15 @@ interface DailyData {
   cost: number;
   profit: number;
   transactions: number;
+  cumulativeRevenue: number;
+  cumulativeProfit: number;
+  dailyFixedCost: number;
+  dailyNetProfit: number;
+  cumulativeNetProfit: number;
+  cumulativeCost: number;
+  netProfitArea: number;
+  areaBase: number;
+  areaDiff: number;
 }
 
 interface SupplierRow {
@@ -93,6 +112,110 @@ interface SupplierRow {
   profit: number;
 }
 
+interface CommissionRow {
+  date: string;
+  totalSales: number;
+  eligibleSales: number;
+  commission: number;
+  staff: string[];
+  perStaffAmount: number;
+}
+
+interface ShiftRow {
+  employeeName: string;
+  date: string;
+  clockIn: string;
+  clockOut: string;
+  rawHours: number;
+  breakDeducted: number;
+  paidHours: number;
+  clockOutAdjusted: boolean;
+}
+
+interface BreakPeriod {
+  start: string;
+  end: string;
+  hours: number;
+}
+
+interface GroupedShiftDay {
+  date: string;
+  segments: ShiftRow[];
+  firstClockIn: string;
+  lastClockOut: string;
+  lastClockOutAdjusted: boolean;
+  totalRawHours: number;
+  totalBreakDeducted: number;
+  totalPaidHours: number;
+  breakHours: number;
+  breaks: BreakPeriod[];
+}
+
+// Merge multiple same-day shift entries (e.g. clock-out/in for a break, or
+// staff who clocked out/in again for a split shift) into a single row per
+// day, using the time gap between segments as the break duration shown.
+const groupShiftsByDate = (shifts: ShiftRow[]): GroupedShiftDay[] => {
+  const byDate = new Map<string, ShiftRow[]>();
+  for (const shift of shifts) {
+    const list = byDate.get(shift.date) || [];
+    list.push(shift);
+    byDate.set(shift.date, list);
+  }
+
+  const grouped: GroupedShiftDay[] = [];
+  for (const [date, segments] of byDate) {
+    const sorted = segments
+      .slice()
+      .sort(
+        (a, b) =>
+          (parseTime(a.clockIn)?.getTime() || 0) -
+          (parseTime(b.clockIn)?.getTime() || 0),
+      );
+
+    let breakHours = 0;
+    const breaks: BreakPeriod[] = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const thisOut = parseTime(sorted[i].clockOut);
+      const nextIn = parseTime(sorted[i + 1].clockIn);
+      if (thisOut && nextIn) {
+        const gapHours = Math.max(
+          0,
+          (nextIn.getTime() - thisOut.getTime()) / (1000 * 60 * 60),
+        );
+        breakHours += gapHours;
+        breaks.push({
+          start: sorted[i].clockOut,
+          end: sorted[i + 1].clockIn,
+          hours: gapHours,
+        });
+      }
+    }
+
+    grouped.push({
+      date,
+      segments: sorted,
+      firstClockIn: sorted[0].clockIn,
+      lastClockOut: sorted[sorted.length - 1].clockOut,
+      lastClockOutAdjusted: sorted[sorted.length - 1].clockOutAdjusted,
+      totalRawHours: sorted.reduce((sum, s) => sum + s.rawHours, 0),
+      totalBreakDeducted: sorted.reduce((sum, s) => sum + s.breakDeducted, 0),
+      totalPaidHours: sorted.reduce((sum, s) => sum + s.paidHours, 0),
+      breakHours,
+      breaks,
+    });
+  }
+
+  grouped.sort((a, b) => a.date.localeCompare(b.date));
+  return grouped;
+};
+
+interface SalaryBreakdown {
+  basic: number;
+  attendanceAllowance: number;
+  performanceBonus: number;
+  overtimePay: number;
+}
+
 interface ReportData {
   month: string;
   year: number;
@@ -102,7 +225,19 @@ interface ReportData {
   dailyData: DailyData[];
   paymentBreakdown: Record<string, number>;
   laborCost: number;
-  laborBreakdown: Record<string, { hours: number; cost: number }>;
+  laborBreakdown: Record<
+    string,
+    {
+      hours: number;
+      cost: number;
+      commission: number;
+      total: number;
+      salaryBreakdown?: SalaryBreakdown;
+    }
+  >;
+  commissionRows: CommissionRow[];
+  totalCommission: number;
+  shiftsByEmployee: Record<string, ShiftRow[]>;
   rentalCost: number;
   gtoCost: number;
   utilitiesCost: number;
@@ -111,6 +246,8 @@ interface ReportData {
   totalOperatingCost: number;
   totalExpenses: number;
   netProfit: number;
+  breakEvenDate: string | null;
+  daysToBreakEven: number | null;
   supplierRows: SupplierRow[];
   outrightTotals: { sales: number; cost: number; profit: number };
   consignmentTotals: { sales: number; cost: number; profit: number };
@@ -156,6 +293,9 @@ function getMonthData(
     paymentBreakdown: {},
     laborCost: 0,
     laborBreakdown: {},
+    commissionRows: [],
+    totalCommission: 0,
+    shiftsByEmployee: {},
     rentalCost: 1500,
     gtoCost: 0,
     utilitiesCost: 0,
@@ -164,6 +304,8 @@ function getMonthData(
     totalOperatingCost: 0,
     totalExpenses: 0,
     netProfit: 0,
+    breakEvenDate: null,
+    daysToBreakEven: null,
     supplierRows: [],
     outrightTotals: { sales: 0, cost: 0, profit: 0 },
     consignmentTotals: { sales: 0, cost: 0, profit: 0 },
@@ -220,38 +362,213 @@ function getMonthData(
     }
   }
 
-  // Calculate labor cost from timesheets
-  // Assuming default hourly rate of RM15 (adjust as needed)
-  const DEFAULT_HOURLY_RATE = 15;
+  // Calculate labor cost from timesheets.
+  // Default rate for part-time staff: RM8/hour. Full-timers (Faris, Putri)
+  // have their own fixed/structured pay rules applied further below.
+  const DEFAULT_HOURLY_RATE = 8;
   const laborMap = new Map<string, { hours: number; cost: number }>();
+
+  // Some staff forget to clock out when closing, so their timesheet either
+  // has no clock-out time, or shows a clock-out in the early hours of the
+  // next day (non-operating hours, e.g. 1am-9am) - a sign they actually
+  // clocked out much later than intended (or the system auto-recorded it
+  // when they next clocked in). In those cases we fall back to that day's
+  // shift Close Time (from shifts.ts) as the real end of the shift.
+  const shiftCloseByDateMap = new Map<string, Date>();
+  for (const shift of staticShifts as any[]) {
+    const openTime = parseShiftDate(String(shift["Open Time"] || ""));
+    const closeTime = parseShiftDate(String(shift["Close Time"] || ""));
+    if (!openTime || !closeTime) continue;
+    const dateKey = `${openTime.getFullYear()}-${String(openTime.getMonth() + 1).padStart(2, "0")}-${String(openTime.getDate()).padStart(2, "0")}`;
+    shiftCloseByDateMap.set(dateKey, closeTime);
+  }
+
+  // Track which staff were on duty each day (from timesheets clock-ins),
+  // used for splitting the daily sales commission.
+  const staffByDateMap = new Map<string, Set<string>>();
+
+  // Track every shift (clock-in/out, raw vs paid hours, break deduction
+  // applied) per employee, used to render a daily shift table per staff.
+  const shiftsByEmployee = new Map<string, ShiftRow[]>();
+
+  // Track hours per employee per calendar week (Monday-start), used for
+  // Putri's weekly attendance allowance / overtime calculation.
+  const hoursByEmployeeWeek = new Map<string, Map<string, number>>();
+  const getWeekKey = (date: Date) => {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const dayOfWeek = d.getDay(); // 0 (Sun) - 6 (Sat)
+    const diffToMonday = (dayOfWeek + 6) % 7;
+    d.setDate(d.getDate() - diffToMonday);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
 
   for (const timesheet of timesheets) {
     const clockIn = parseTime(timesheet.clockInTime);
-    const clockOut = parseTime(timesheet.clockOutTime);
+    const rawClockOut = parseTime(timesheet.clockOutTime);
 
-    if (!clockIn || !clockOut) continue;
+    if (!clockIn) continue;
 
-    // Only count timesheets in the selected month
-    if (clockIn.getMonth() !== month || clockIn.getFullYear() !== year) {
-      continue;
+    // Timesheets are fetched for a padded range (full Monday-Sunday weeks
+    // overlapping the month) so weekly overtime totals are accurate at the
+    // month boundary. Entries outside the actual selected month still
+    // contribute to that week's hour total (for OT/allowance purposes)
+    // but are excluded from month-scoped totals: labor cost, the daily
+    // shift tables, and staff-on-duty tracking.
+    const isInSelectedMonth =
+      clockIn.getMonth() === month && clockIn.getFullYear() === year;
+
+    // Detect a forgotten clock-out: either missing entirely, or recorded
+    // in the early-morning non-operating window (1am-9am) on a later
+    // calendar day than the clock-in - a telltale sign staff forgot to
+    // clock out at actual closing time.
+    const clockOutLooksForgotten =
+      !rawClockOut ||
+      (rawClockOut.getDate() !== clockIn.getDate() &&
+        rawClockOut.getHours() >= 1 &&
+        rawClockOut.getHours() < 9);
+
+    let clockOut = rawClockOut;
+    let clockOutAdjusted = false;
+    if (clockOutLooksForgotten) {
+      const shiftDateKey = `${clockIn.getFullYear()}-${String(clockIn.getMonth() + 1).padStart(2, "0")}-${String(clockIn.getDate()).padStart(2, "0")}`;
+      const fallbackClose = shiftCloseByDateMap.get(shiftDateKey);
+      if (fallbackClose) {
+        clockOut = fallbackClose;
+        clockOutAdjusted = true;
+      }
     }
 
-    const hours = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
-    const laborCost = hours * DEFAULT_HOURLY_RATE;
+    if (!clockOut) continue;
 
+    const rawHours =
+      (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
+
+    // Mandatory break policy: staff must clock out/in for their break.
+    // When a shift is recorded as one straight block of 10+ hours (no
+    // break clock-out/in found), we assume the break was skipped or
+    // forgotten and deduct the required break time from paid hours:
+    // 10+ hours straight -> deduct 1 hour, 12+ hours straight -> deduct 2
+    // hours.
     const employeeId = timesheet.employeeId || "Unknown";
     const employeeName = employeeNameMap.get(employeeId) || employeeId;
+    let breakDeduction = 0;
+    if (rawHours >= 12) {
+      breakDeduction = 2;
+    } else if (rawHours >= 10) {
+      breakDeduction = 1;
+    }
+    const hours = Math.max(0, rawHours - breakDeduction);
+
+    // Always tally hours into the employee's weekly bucket (even for
+    // padding days outside the selected month) so weekly OT (>45 hrs) is
+    // computed against complete Monday-Sunday weeks.
+    const weekKey = getWeekKey(clockIn);
+    const weekMap =
+      hoursByEmployeeWeek.get(employeeName) || new Map<string, number>();
+    weekMap.set(weekKey, (weekMap.get(weekKey) || 0) + hours);
+    hoursByEmployeeWeek.set(employeeName, weekMap);
+
+    // Everything below this point is month-scoped: labor cost, the daily
+    // shift tables, and staff-on-duty-per-day tracking should only reflect
+    // shifts that actually fall within the selected month.
+    if (!isInSelectedMonth) continue;
+
+    const dutyDateKeyForShift = `${clockIn.getFullYear()}-${String(clockIn.getMonth() + 1).padStart(2, "0")}-${String(clockIn.getDate()).padStart(2, "0")}`;
+    const employeeShifts = shiftsByEmployee.get(employeeName) || [];
+    employeeShifts.push({
+      employeeName,
+      date: dutyDateKeyForShift,
+      clockIn: timesheet.clockInTime,
+      clockOut: clockOutAdjusted
+        ? clockOut.toISOString()
+        : timesheet.clockOutTime,
+      rawHours,
+      breakDeducted: breakDeduction,
+      paidHours: hours,
+      clockOutAdjusted,
+    });
+    shiftsByEmployee.set(employeeName, employeeShifts);
+
+    const laborCost = hours * DEFAULT_HOURLY_RATE;
+
     const current = laborMap.get(employeeName) || { hours: 0, cost: 0 };
     current.hours += hours;
     current.cost += laborCost;
     laborMap.set(employeeName, current);
+
+    const dutyDateKey = `${clockIn.getFullYear()}-${String(clockIn.getMonth() + 1).padStart(2, "0")}-${String(clockIn.getDate()).padStart(2, "0")}`;
+    const staffSet = staffByDateMap.get(dutyDateKey) || new Set<string>();
+    staffSet.add(employeeName);
+    staffByDateMap.set(dutyDateKey, staffSet);
   }
 
-  reportData.laborBreakdown = Object.fromEntries(laborMap);
-  reportData.laborCost = Array.from(laborMap.values()).reduce(
-    (sum, d) => sum + d.cost,
-    0,
-  );
+  const shiftsByEmployeeObj: Record<string, ShiftRow[]> = {};
+  for (const [name, shifts] of shiftsByEmployee) {
+    shiftsByEmployeeObj[name] = shifts
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+  reportData.shiftsByEmployee = shiftsByEmployeeObj;
+
+  // ─── Special payroll rules ──────────────────────────────────────────────
+  // Faris is always a full-timer on a fixed salary (no OT, no commission).
+  // Putri became a full-timer with the structured salary below starting
+  // July 2026; before that (including June 2026 and earlier) she's paid as
+  // a regular part-timer (RM8/hr, already the default applied above).
+  const PUTRI_FULLTIME_EFFECTIVE_DATE = new Date(2026, 6, 1); // July 1, 2026
+  const isPutriFulltimeMonth =
+    new Date(year, month, 1) >= PUTRI_FULLTIME_EFFECTIVE_DATE;
+
+  // Detailed salary breakdown (basic / allowance / bonus / OT) for
+  // full-timers with structured pay, surfaced in the labor cost UI.
+  const salaryBreakdownMap = new Map<string, SalaryBreakdown>();
+
+  for (const [employeeName, data] of Array.from(laborMap.entries())) {
+    if (/faris/i.test(employeeName)) {
+      // Faris: fixed salary RM3200, no overtime, no commission - always.
+      laborMap.set(employeeName, { hours: 0, cost: 3200 });
+      salaryBreakdownMap.set(employeeName, {
+        basic: 3200,
+        attendanceAllowance: 0,
+        performanceBonus: 0,
+        overtimePay: 0,
+      });
+      for (const staffSet of staffByDateMap.values()) {
+        staffSet.delete(employeeName);
+      }
+    } else if (/putri/i.test(employeeName) && isPutriFulltimeMonth) {
+      // Putri: Basic RM1750 + weekly attendance allowance (RM100/RM200) +
+      // performance bonus (1% of revenue, floored, clamped RM100-RM300) +
+      // OT at RM8/hour for hours beyond 45/week.
+      const weekMap =
+        hoursByEmployeeWeek.get(employeeName) || new Map<string, number>();
+      const NORMAL_WEEKLY_HOURS = 45;
+      const OT_RATE = 8;
+      let attendanceAllowance = 0;
+      let otPay = 0;
+      for (const weeklyHours of weekMap.values()) {
+        attendanceAllowance += weeklyHours >= NORMAL_WEEKLY_HOURS ? 50 : 0;
+        if (weeklyHours > NORMAL_WEEKLY_HOURS) {
+          otPay += (weeklyHours - NORMAL_WEEKLY_HOURS) * OT_RATE;
+        }
+      }
+
+      if (data.hours > 0 || weekMap.size > 0) {
+        const BASIC_SALARY = 1750;
+        const rawBonus = Math.floor(reportData.totalRevenue * 0.01);
+        const performanceBonus = Math.min(300, Math.max(100, rawBonus));
+        const totalCost =
+          BASIC_SALARY + attendanceAllowance + performanceBonus + otPay;
+        laborMap.set(employeeName, { hours: data.hours, cost: totalCost });
+        salaryBreakdownMap.set(employeeName, {
+          basic: BASIC_SALARY,
+          attendanceAllowance,
+          performanceBonus,
+          overtimePay: otPay,
+        });
+      }
+    }
+  }
 
   // Calculate claim/payout cost from shift data (Pay Out field)
   let claimTotal = 0;
@@ -390,18 +707,56 @@ function getMonthData(
     .sort((a, b) => b.sales - a.sales)
     .slice(0, 10);
 
-  // Build daily data array
+  // Build daily data array. Every calendar day in the month is included
+  // (even ones with zero sales) so that fixed costs are correctly charged
+  // against days with no revenue - otherwise the break-even calculation
+  // below would skip those days and understate accumulated costs. Days
+  // after "today" are excluded when viewing the current month, since they
+  // haven't happened yet.
+  const now = new Date();
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+  const daysToInclude = new Date(year, month + 1, 0).getDate();
+  const lastDayOfMonth = isCurrentMonth
+    ? Math.min(daysToInclude, now.getDate())
+    : daysToInclude;
+
   const dailyData: DailyData[] = [];
-  for (const [dateStr, data] of dailyDataMap) {
+  for (let d = 1; d <= lastDayOfMonth; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const data = dailyDataMap.get(dateStr) || {
+      revenue: 0,
+      cost: 0,
+      transactions: 0,
+    };
     dailyData.push({
       date: dateStr,
       revenue: data.revenue,
       cost: data.cost,
       profit: data.revenue - data.cost,
       transactions: data.transactions,
+      cumulativeRevenue: 0,
+      cumulativeProfit: 0,
+      dailyFixedCost: 0,
+      dailyNetProfit: 0,
+      cumulativeNetProfit: 0,
+      cumulativeCost: 0,
+      netProfitArea: 0,
+      areaBase: 0,
+      areaDiff: 0,
     });
   }
   dailyData.sort((a, b) => a.date.localeCompare(b.date));
+
+  // Running totals for the cumulative trend chart
+  let runningRevenue = 0;
+  let runningProfit = 0;
+  for (const day of dailyData) {
+    runningRevenue += day.revenue;
+    runningProfit += day.profit;
+    day.cumulativeRevenue = runningRevenue;
+    day.cumulativeProfit = runningProfit;
+  }
+
   reportData.dailyData = dailyData;
 
   // Calculate totals
@@ -415,6 +770,86 @@ function getMonthData(
   );
   reportData.totalProfit = reportData.totalRevenue - reportData.totalCost;
 
+  // ─── Commission Calculation (effective starting July 2026) ─────────────
+  // Rule: on any day where total sales exceed RM1000, every RM100 of sales
+  // above that RM1000 threshold earns RM10 of commission, split evenly
+  // among staff on duty that day. Sales are floored to the nearest RM100
+  // before computing eligibility (e.g. RM1275 -> RM1200 -> RM200 eligible
+  // -> RM20 commission).
+  const COMMISSION_EFFECTIVE_DATE = new Date(2026, 6, 1); // July 1, 2026
+  const commissionRows: CommissionRow[] = [];
+  const staffCommissionMap = new Map<string, number>();
+
+  for (const [dateStr, data] of dailyDataMap) {
+    const dateObj = new Date(dateStr + "T00:00:00");
+    if (dateObj < COMMISSION_EFFECTIVE_DATE) continue;
+    if (data.revenue <= 1000) continue;
+
+    const flooredSales = Math.floor(data.revenue / 100) * 100;
+    const eligibleSales = flooredSales - 1000;
+    if (eligibleSales <= 0) continue;
+
+    const commission = (eligibleSales / 100) * 10;
+    const staffSet = staffByDateMap.get(dateStr) || new Set<string>();
+    const staff = Array.from(staffSet).sort();
+    const perStaffAmount = staff.length > 0 ? commission / staff.length : 0;
+
+    for (const name of staff) {
+      staffCommissionMap.set(
+        name,
+        (staffCommissionMap.get(name) || 0) + perStaffAmount,
+      );
+    }
+
+    commissionRows.push({
+      date: dateStr,
+      totalSales: data.revenue,
+      eligibleSales,
+      commission,
+      staff,
+      perStaffAmount,
+    });
+  }
+
+  commissionRows.sort((a, b) => a.date.localeCompare(b.date));
+  reportData.commissionRows = commissionRows;
+  reportData.totalCommission = commissionRows.reduce(
+    (sum, r) => sum + r.commission,
+    0,
+  );
+
+  // Merge commission into labor breakdown (salary + commission = total)
+  const laborBreakdown: Record<
+    string,
+    {
+      hours: number;
+      cost: number;
+      commission: number;
+      total: number;
+      salaryBreakdown?: SalaryBreakdown;
+    }
+  > = {};
+  const allNames = new Set<string>([
+    ...laborMap.keys(),
+    ...staffCommissionMap.keys(),
+  ]);
+  for (const name of allNames) {
+    const base = laborMap.get(name) || { hours: 0, cost: 0 };
+    const commission = staffCommissionMap.get(name) || 0;
+    laborBreakdown[name] = {
+      hours: base.hours,
+      cost: base.cost,
+      commission,
+      total: base.cost + commission,
+      salaryBreakdown: salaryBreakdownMap.get(name),
+    };
+  }
+  reportData.laborBreakdown = laborBreakdown;
+  reportData.laborCost = Object.values(laborBreakdown).reduce(
+    (sum, d) => sum + d.cost,
+    0,
+  );
+
   // Calculate GTO (2% of revenue)
   reportData.gtoCost = reportData.totalRevenue * 0.02;
 
@@ -426,6 +861,7 @@ function getMonthData(
   // Operating costs = everything besides COGS
   reportData.totalOperatingCost =
     reportData.laborCost +
+    reportData.totalCommission +
     reportData.rentalCost +
     reportData.gtoCost +
     reportData.utilitiesCost +
@@ -436,6 +872,46 @@ function getMonthData(
   reportData.totalExpenses =
     reportData.totalCost + reportData.totalOperatingCost;
   reportData.netProfit = reportData.totalRevenue - reportData.totalExpenses;
+
+  // ─── Break-even Analysis ────────────────────────────────────
+  // The month's fixed overhead (rental, labor, commission, utilities,
+  // marketing, claims) has to be paid regardless of how sales are spread
+  // across the month, so it is treated as a constant baseline added on top
+  // of the running COGS + GTO to build a "cumulative cost" line. Plotting
+  // that against the cumulative revenue (sales) line lets the break-even
+  // point show up naturally as the day the two lines cross, with the gap
+  // between them representing net profit (or loss).
+  const totalFixedCost =
+    reportData.laborCost +
+    reportData.totalCommission +
+    reportData.rentalCost +
+    reportData.utilitiesCost +
+    reportData.marketingCost +
+    reportData.claimCost;
+
+  let runningCost = totalFixedCost;
+  let breakEvenDate: string | null = null;
+  for (const day of reportData.dailyData) {
+    const dailyGto = day.revenue * 0.02;
+    runningCost += day.cost + dailyGto;
+
+    day.dailyFixedCost = dailyGto;
+    day.dailyNetProfit = day.profit - dailyGto;
+    day.cumulativeCost = runningCost;
+    day.netProfitArea = day.cumulativeRevenue - runningCost;
+    day.cumulativeNetProfit = day.netProfitArea;
+    day.areaBase = Math.min(day.cumulativeRevenue, runningCost);
+    day.areaDiff = Math.abs(day.cumulativeRevenue - runningCost);
+
+    if (breakEvenDate === null && day.netProfitArea >= 0) {
+      breakEvenDate = day.date;
+    }
+  }
+
+  reportData.breakEvenDate = breakEvenDate;
+  reportData.daysToBreakEven = breakEvenDate
+    ? new Date(breakEvenDate + "T00:00:00").getDate()
+    : null;
 
   return reportData;
 }
@@ -457,11 +933,21 @@ export default function MonthlyReportClient() {
   });
   const { data: employeesData, loading: employeesLoading } = useEmployees();
 
-  // Fetch timesheets for the selected month
+  // Fetch timesheets for the selected month, padded out to the full
+  // Monday-Sunday weeks that overlap the month boundary. This is needed so
+  // weekly overtime (Putri: >45 hrs/week) is computed on complete weeks
+  // even when the month starts/ends mid-week - otherwise the first/last
+  // week of the month would look artificially short and under-report OT.
   const monthStart = new Date(selectedYear, selectedMonth, 1);
   const monthEnd = new Date(selectedYear, selectedMonth + 1, 0);
-  const fromDate = monthStart.toISOString().split("T")[0];
-  const toDate = monthEnd.toISOString().split("T")[0];
+  const paddedStart = new Date(monthStart);
+  paddedStart.setDate(paddedStart.getDate() - ((paddedStart.getDay() + 6) % 7)); // back to Monday
+  const paddedEnd = new Date(monthEnd);
+  paddedEnd.setDate(
+    paddedEnd.getDate() + (7 - ((paddedEnd.getDay() + 6) % 7) - 1),
+  ); // forward to Sunday
+  const fromDate = paddedStart.toISOString().split("T")[0];
+  const toDate = paddedEnd.toISOString().split("T")[0];
 
   const { data: timesheetsData, loading: timesheetsLoading } = useTimesheets({
     from: fromDate,
@@ -687,16 +1173,37 @@ export default function MonthlyReportClient() {
             ))}
           </div>
 
-          {/* Daily Revenue & Profit Trend */}
+          {/* Break-even Analysis */}
           <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
-            <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
-              Daily revenue &amp; profit trend
-            </h2>
+            <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+              <h2 className="text-base md:text-lg font-bold text-gray-900">
+                Break-even point
+              </h2>
+              {reportData.breakEvenDate ? (
+                <span className="px-2.5 py-1 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+                  Achieved on{" "}
+                  {new Date(
+                    reportData.breakEvenDate + "T00:00:00",
+                  ).toLocaleDateString("en-MY", {
+                    day: "numeric",
+                    month: "short",
+                  })}{" "}
+                  (Day {reportData.daysToBreakEven})
+                </span>
+              ) : (
+                <span className="px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-xs font-semibold">
+                  Not yet achieved this month
+                </span>
+              )}
+            </div>
             <p className="text-xs md:text-sm text-gray-600 mb-4">
-              Revenue vs profit by date across the month
+              Cumulative sales versus cumulative cost (fixed overhead + COGS +
+              GTO) across the month. The point where the two lines meet is the
+              break-even point - the shaded gap between them is net profit when
+              sales are on top, or net loss when cost is on top.
             </p>
-            <ResponsiveContainer width="100%" height={230}>
-              <LineChart data={reportData.dailyData}>
+            <ResponsiveContainer width="100%" height={260}>
+              <ComposedChart data={reportData.dailyData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis
                   dataKey="date"
@@ -705,32 +1212,84 @@ export default function MonthlyReportClient() {
                 />
                 <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" />
                 <Tooltip
-                  formatter={(value: unknown) =>
-                    `RM ${Number(value).toFixed(2)}`
+                  formatter={(value: unknown, name: string) =>
+                    name === "Gap (base)"
+                      ? [null, null]
+                      : [`RM ${Number(value).toFixed(2)}`, name]
                   }
                   contentStyle={{
                     borderRadius: "8px",
                     border: "1px solid #e5e7eb",
                   }}
                 />
-                <Legend />
+                <Legend
+                  payload={[
+                    {
+                      value: "Cumulative Sales",
+                      type: "line",
+                      color: "#2563eb",
+                    },
+                    {
+                      value: "Cumulative Cost",
+                      type: "line",
+                      color: "#ef4444",
+                    },
+                    {
+                      value: "Net profit/loss gap",
+                      type: "rect",
+                      color: "#10b981",
+                    },
+                  ]}
+                />
+                {reportData.breakEvenDate && (
+                  <ReferenceLine
+                    x={reportData.breakEvenDate}
+                    stroke="#10b981"
+                    strokeDasharray="4 4"
+                    label={{
+                      value: "Break-even",
+                      position: "insideTopLeft",
+                      fontSize: 11,
+                      fill: "#10b981",
+                    }}
+                  />
+                )}
+                <Area
+                  dataKey="areaBase"
+                  name="Gap (base)"
+                  stackId="gap"
+                  stroke="none"
+                  fill="transparent"
+                  legendType="none"
+                  isAnimationActive={false}
+                />
+                <Area
+                  dataKey="areaDiff"
+                  name="Net profit/loss gap"
+                  stackId="gap"
+                  stroke="none"
+                  fill="#10b981"
+                  fillOpacity={0.2}
+                  legendType="none"
+                  isAnimationActive={false}
+                />
                 <Line
                   type="monotone"
-                  dataKey="revenue"
+                  dataKey="cumulativeRevenue"
                   stroke="#2563eb"
                   strokeWidth={2}
-                  name="Revenue"
+                  name="Cumulative Sales"
                   dot={false}
                 />
                 <Line
                   type="monotone"
-                  dataKey="profit"
-                  stroke="#10b981"
+                  dataKey="cumulativeCost"
+                  stroke="#ef4444"
                   strokeWidth={2}
-                  name="Profit"
+                  name="Cumulative Cost"
                   dot={false}
                 />
-              </LineChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
 
@@ -924,7 +1483,7 @@ export default function MonthlyReportClient() {
             {/* Top 10 Products */}
             <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
               <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
-                Top 10 selling products
+                Top selling products
               </h2>
               <p className="text-xs md:text-sm text-gray-600 mb-4">
                 Ranked by total sales for the month
@@ -977,7 +1536,8 @@ export default function MonthlyReportClient() {
               <div className="space-y-2">
                 {[
                   { name: "Cost of Goods Sold", value: reportData.totalCost },
-                  { name: "Labor Cost", value: reportData.laborCost },
+                  { name: "Labor Cost (Salary)", value: reportData.laborCost },
+                  { name: "Commission", value: reportData.totalCommission },
                   { name: "Rental", value: reportData.rentalCost },
                   { name: "GTO to Landlord (2%)", value: reportData.gtoCost },
                   { name: "Utilities", value: reportData.utilitiesCost },
@@ -1015,26 +1575,75 @@ export default function MonthlyReportClient() {
               <h2 className="text-base md:text-lg font-bold text-gray-900 mb-4">
                 Labor cost breakdown
               </h2>
-              <div className="space-y-2 max-h-80 overflow-y-auto">
+              <div className="space-y-2 max-h-80">
                 {Object.entries(reportData.laborBreakdown).map(
                   ([name, data]) => (
                     <div
                       key={name}
-                      className="flex items-center justify-between p-2.5 bg-gray-50 rounded-lg border border-gray-100"
+                      className="p-2.5 bg-gray-50 rounded-lg border border-gray-100"
                     >
-                      <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
                         <p className="text-xs md:text-sm font-medium text-gray-900 truncate">
                           {name}
                         </p>
-                        <p className="text-[10px] md:text-xs text-gray-600">
+                        <span className="text-xs md:text-sm font-bold text-gray-900 ml-3 shrink-0">
+                          RM {formatCurrency(data.total)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] md:text-xs text-gray-600">
+                        <span>
                           {data.hours > 0
                             ? `${data.hours.toFixed(2)} hours`
                             : "Fixed salary"}
-                        </p>
+                        </span>
+                        <span className="flex gap-3">
+                          <span>Salary: RM {formatCurrency(data.cost)}</span>
+                          <span
+                            className={
+                              data.commission > 0
+                                ? "text-green-600 font-medium"
+                                : ""
+                            }
+                          >
+                            Commission: RM {formatCurrency(data.commission)}
+                          </span>
+                        </span>
                       </div>
-                      <span className="text-xs md:text-sm font-semibold text-gray-900 ml-3 shrink-0">
-                        RM {formatCurrency(data.cost)}
-                      </span>
+                      {data.salaryBreakdown && (
+                        <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] md:text-xs text-gray-600">
+                          <span className="flex justify-between gap-2">
+                            <span>Basic</span>
+                            <span className="font-medium text-gray-800">
+                              RM {formatCurrency(data.salaryBreakdown.basic)}
+                            </span>
+                          </span>
+                          <span className="flex justify-between gap-2">
+                            <span>Attendance allowance</span>
+                            <span className="font-medium text-gray-800">
+                              RM{" "}
+                              {formatCurrency(
+                                data.salaryBreakdown.attendanceAllowance,
+                              )}
+                            </span>
+                          </span>
+                          <span className="flex justify-between gap-2">
+                            <span>Performance bonus</span>
+                            <span className="font-medium text-gray-800">
+                              RM{" "}
+                              {formatCurrency(
+                                data.salaryBreakdown.performanceBonus,
+                              )}
+                            </span>
+                          </span>
+                          <span className="flex justify-between gap-2">
+                            <span>Overtime</span>
+                            <span className="font-medium text-gray-800">
+                              RM{" "}
+                              {formatCurrency(data.salaryBreakdown.overtimePay)}
+                            </span>
+                          </span>
+                        </div>
+                      )}
                     </div>
                   ),
                 )}
@@ -1044,6 +1653,274 @@ export default function MonthlyReportClient() {
                   </p>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Staff Daily Shift Tables */}
+          {Object.entries(reportData.shiftsByEmployee).map(
+            ([employeeName, shifts]) => {
+              const groupedDays = groupShiftsByDate(shifts);
+              const totalRaw = groupedDays.reduce(
+                (sum, d) => sum + d.totalRawHours,
+                0,
+              );
+              const totalDeducted = groupedDays.reduce(
+                (sum, d) => sum + d.totalBreakDeducted,
+                0,
+              );
+              const totalPaid = groupedDays.reduce(
+                (sum, d) => sum + d.totalPaidHours,
+                0,
+              );
+              return (
+                <div
+                  key={employeeName}
+                  className="bg-white border border-gray-200 rounded-lg p-4 md:p-6"
+                >
+                  <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+                    {employeeName} &mdash; daily shifts
+                  </h2>
+                  <p className="text-xs md:text-sm text-gray-600 mb-4">
+                    Clock-in/out per day (multiple clock-out/in entries on the
+                    same day are merged, with the gap shown as a break).
+                    Straight shifts of 10+ hours with no recorded break deduct 1
+                    hour of paid time; 12+ hours deduct 2 hours. Clock-outs
+                    marked{" "}
+                    <span className="text-amber-600 font-medium">(adj.)</span>{" "}
+                    were forgotten (missing or logged in the 1am-9am
+                    non-operating window) and have been replaced with that
+                    day&apos;s shift closing time.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs md:text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200 text-left text-gray-500">
+                          <th className="py-2 pr-2 font-medium">Date</th>
+                          <th className="py-2 px-2 font-medium">Clock in</th>
+                          <th className="py-2 px-2 font-medium">Clock out</th>
+                          <th className="py-2 px-2 font-medium text-right">
+                            Break time
+                          </th>
+                          <th className="py-2 px-2 font-medium text-right">
+                            Clocked hours
+                          </th>
+                          <th className="py-2 px-2 font-medium text-right">
+                            Break deducted
+                          </th>
+                          <th className="py-2 pl-2 font-medium text-right">
+                            Paid hours
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {groupedDays.map((row) => (
+                          <tr
+                            key={row.date}
+                            className="border-b border-gray-100"
+                          >
+                            <td className="py-2 pr-2 font-medium text-gray-900">
+                              {new Date(
+                                row.date + "T00:00:00",
+                              ).toLocaleDateString("en-MY", {
+                                day: "numeric",
+                                month: "short",
+                                weekday: "short",
+                              })}
+                            </td>
+                            <td className="py-2 px-2 text-gray-700">
+                              {parseTime(row.firstClockIn)?.toLocaleTimeString(
+                                "en-MY",
+                                { hour: "2-digit", minute: "2-digit" },
+                              ) || "-"}
+                            </td>
+                            <td className="py-2 px-2 text-gray-700">
+                              {parseTime(row.lastClockOut)?.toLocaleTimeString(
+                                "en-MY",
+                                { hour: "2-digit", minute: "2-digit" },
+                              ) || "-"}
+                              {row.lastClockOutAdjusted && (
+                                <span
+                                  className="ml-1 text-amber-600 font-medium"
+                                  title="Clock-out was missing or forgotten; replaced with that day's shift closing time"
+                                >
+                                  (adj.)
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 px-2 text-right text-gray-700">
+                              {row.breaks.length > 0 ? (
+                                <div className="flex flex-col items-end gap-0.5">
+                                  {row.breaks.map((brk, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="text-blue-600 font-medium whitespace-nowrap"
+                                    >
+                                      {parseTime(brk.start)?.toLocaleTimeString(
+                                        "en-MY",
+                                        { hour: "2-digit", minute: "2-digit" },
+                                      ) || "-"}
+                                      {" \u2013 "}
+                                      {parseTime(brk.end)?.toLocaleTimeString(
+                                        "en-MY",
+                                        { hour: "2-digit", minute: "2-digit" },
+                                      ) || "-"}
+                                      {" ("}
+                                      {formatDuration(brk.hours)}
+                                      {")"}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400">&mdash;</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-2 text-right text-gray-700">
+                              {row.totalRawHours.toFixed(2)} hrs
+                            </td>
+                            <td className="py-2 px-2 text-right font-medium">
+                              {row.totalBreakDeducted > 0 ? (
+                                <span className="text-red-600">
+                                  &minus;{row.totalBreakDeducted.toFixed(0)} hr
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">&mdash;</span>
+                              )}
+                            </td>
+                            <td className="py-2 pl-2 text-right font-semibold text-gray-900">
+                              {row.totalPaidHours.toFixed(2)} hrs
+                            </td>
+                          </tr>
+                        ))}
+                        {groupedDays.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={7}
+                              className="py-6 text-center text-gray-500"
+                            >
+                              No shifts recorded this month
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                      {groupedDays.length > 0 && (
+                        <tfoot className="bg-gray-50">
+                          <tr className="border-t-2 border-gray-300 font-semibold">
+                            <td className="py-2 pr-2 text-gray-900" colSpan={4}>
+                              Total
+                            </td>
+                            <td className="py-2 px-2 text-right text-gray-900">
+                              {totalRaw.toFixed(2)} hrs
+                            </td>
+                            <td className="py-2 px-2 text-right text-red-700">
+                              {totalDeducted > 0
+                                ? `-${totalDeducted.toFixed(0)} hr`
+                                : "-"}
+                            </td>
+                            <td className="py-2 pl-2 text-right text-gray-900">
+                              {totalPaid.toFixed(2)} hrs
+                            </td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </div>
+              );
+            },
+          )}
+
+          {/* Commission Table */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+            <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+              Sales commission
+            </h2>
+            <p className="text-xs md:text-sm text-gray-600 mb-4">
+              Days with sales above RM1,000 earn RM10 commission for every RM100
+              sold above that threshold, split evenly among staff on duty.
+              Effective from July 2026.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs md:text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left text-gray-500">
+                    <th className="py-2 pr-2 font-medium">Date</th>
+                    <th className="py-2 px-2 font-medium text-right">
+                      Total sales
+                    </th>
+                    <th className="py-2 px-2 font-medium text-right">
+                      Eligible sales
+                    </th>
+                    <th className="py-2 px-2 font-medium text-right">
+                      Commission
+                    </th>
+                    <th className="py-2 pl-2 font-medium">
+                      Staff (per person)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportData.commissionRows.map((row) => (
+                    <tr key={row.date} className="border-b border-gray-100">
+                      <td className="py-2 pr-2 font-medium text-gray-900">
+                        {new Date(row.date + "T00:00:00").toLocaleDateString(
+                          "en-MY",
+                          { day: "numeric", month: "short", weekday: "short" },
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right text-blue-600">
+                        RM {formatCurrency(row.totalSales)}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-700">
+                        RM {formatCurrency(row.eligibleSales)}
+                      </td>
+                      <td className="py-2 px-2 text-right font-semibold text-green-600">
+                        RM {formatCurrency(row.commission)}
+                      </td>
+                      <td className="py-2 pl-2 text-gray-700">
+                        {row.staff.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {row.staff.map((name) => (
+                              <span
+                                key={name}
+                                className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 text-[10px] md:text-xs font-medium"
+                              >
+                                {name}: RM {formatCurrency(row.perStaffAmount)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">
+                            No staff on duty recorded
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {reportData.commissionRows.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="py-6 text-center text-gray-500"
+                      >
+                        No commission-eligible days this month
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                {reportData.commissionRows.length > 0 && (
+                  <tfoot className="bg-gray-50">
+                    <tr className="border-t-2 border-gray-300 font-semibold">
+                      <td className="py-2 pr-2 text-gray-900" colSpan={3}>
+                        Total commission
+                      </td>
+                      <td className="py-2 px-2 text-right text-green-700">
+                        RM {formatCurrency(reportData.totalCommission)}
+                      </td>
+                      <td className="py-2 pl-2"></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
             </div>
           </div>
 
