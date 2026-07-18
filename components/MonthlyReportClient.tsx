@@ -28,8 +28,15 @@ import staticShifts from "../data/shifts";
 
 const parseTime = (timeString: string): Date | null => {
   // Format: "2026-04-15T17:42:00Z" (ISO format from API)
+  if (!timeString) return null;
   try {
-    return new Date(timeString);
+    const date = new Date(timeString);
+    // `new Date("")` (or any unparseable string) doesn't throw - it silently
+    // returns an "Invalid Date" object, which is truthy and would otherwise
+    // slip past `!date` checks and poison downstream math with NaN (e.g. a
+    // staff member still clocked in with no clock-out time recorded yet).
+    if (Number.isNaN(date.getTime())) return null;
+    return date;
   } catch {
     return null;
   }
