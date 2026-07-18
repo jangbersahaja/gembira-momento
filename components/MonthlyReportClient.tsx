@@ -572,15 +572,23 @@ function getMonthData(
         staffSet.delete(employeeName);
       }
     } else if (/putri/i.test(employeeName) && isPutriFulltimeMonth) {
-      // Putri: Basic RM1750/month, structured per the Employment Act 1955
-      // (monthly-rated employee):
+      // Putri: Basic RM1750/month, structured for shift-based retail work
+      // under the Employment Act 1955 (monthly-rated employee):
       //  - Daily rate = Basic / 26
-      //  - Hourly rate = Daily rate / normal daily hours (8)
-      //  - Normal-day OT: hours beyond 8/day paid at 1.5x hourly rate.
-      //  - Rest-day OT: normal-hours portion paid as half/full a day's
-      //    wage (half a day's wage if she worked half a day or less, else
-      //    a full day's wage), plus hours beyond the normal 8-hour day
-      //    paid at 2x hourly rate.
+      //  - Hourly rate = Daily rate / normal daily hours (8, used only as
+      //    the OT pay-rate divisor, not as a daily OT trigger - retail
+      //    shifts vary in length by design, so OT is judged weekly).
+      //  - Normal OT: hours beyond 45/week paid at 1.5x hourly rate. This
+      //    matches EA 1955's weekly hour limit and fits shift rostering
+      //    much better than a fixed daily-hours trigger (which would
+      //    falsely flag every longer shift as OT even on an otherwise
+      //    normal week).
+      //  - Rest-day OT: on her designated rest day, the normal-hours
+      //    portion is paid as half/full a day's wage (half a day's wage
+      //    if she worked half a day or less, else a full day's wage),
+      //    plus hours beyond the normal 8-hour day paid at 2x hourly
+      //    rate. Rest-day hours are excluded from the weekly 45hr OT
+      //    tally since they're compensated separately under this rule.
       //  - Statutory cap: max 104 OT hours counted per month.
       //
       // Putri's weekly rest day is not fixed to Sunday - she may choose
@@ -591,10 +599,11 @@ function getMonthData(
       // used as the statutory default since a rest day must exist).
       // Plus a performance bonus (1% of revenue, floored, clamped
       // RM100-RM300) and a business-policy attendance allowance (RM50 per
-      // fully-attended Mon-Sat working week - independent of OT, since
-      // attendance and overtime are different things).
+      // fully-attended working week - independent of OT, since attendance
+      // and overtime are different things).
       const BASIC_SALARY = 1750;
       const NORMAL_DAILY_HOURS = 8;
+      const NORMAL_WEEKLY_HOURS = 45;
       const WAGE_DIVISOR_DAYS = 26;
       const MAX_MONTHLY_OT_HOURS = 104;
       const dailyRate = BASIC_SALARY / WAGE_DIVISOR_DAYS;
@@ -629,7 +638,10 @@ function getMonthData(
         restDayByWeek.set(wk, restDow);
       }
 
-      let normalOtHours = 0;
+      // Bucket normal (non-rest-day) paid hours per week, and separately
+      // accumulate rest-day pay per day (rest-day pay uses its own rule,
+      // not the weekly 45hr threshold).
+      const normalHoursByWeek = new Map<string, number>();
       let restDayPay = 0;
       for (const [dateKey, paidHoursForDay] of dayMap.entries()) {
         if (paidHoursForDay <= 0) continue;
@@ -647,8 +659,18 @@ function getMonthData(
             normalPortion <= NORMAL_DAILY_HOURS / 2 ? dailyRate / 2 : dailyRate;
           restDayPay += dayWagePay + excessPortion * hourlyRate * 2;
         } else {
-          normalOtHours += Math.max(0, paidHoursForDay - NORMAL_DAILY_HOURS);
+          normalHoursByWeek.set(
+            wk,
+            (normalHoursByWeek.get(wk) || 0) + paidHoursForDay,
+          );
         }
+      }
+
+      // Weekly OT: hours beyond 45/week (excluding rest-day hours, which
+      // are compensated separately above) paid at 1.5x hourly rate.
+      let normalOtHours = 0;
+      for (const weeklyHours of normalHoursByWeek.values()) {
+        normalOtHours += Math.max(0, weeklyHours - NORMAL_WEEKLY_HOURS);
       }
       // Cap normal OT hours at the statutory monthly maximum (rest-day pay
       // is a separate entitlement and is not subject to this cap).
