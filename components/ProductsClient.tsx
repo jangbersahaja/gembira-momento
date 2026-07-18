@@ -668,7 +668,7 @@ export default function ProductsClient() {
 
                 {/* Products */}
                 {expandedCategory === group.supplier && (
-                  <div className="md:border-t md:border-gray-200 md:divide-y md:divide-gray-100 md:max-h-80 md:overflow-y-auto">
+                  <div className="md:border-t md:border-gray-200 md:divide-y md:divide-gray-100 ">
                     {/* Desktop Table */}
                     <div className="hidden md:block">
                       {/* Header */}
@@ -842,7 +842,7 @@ export default function ProductsClient() {
 
                 {/* Products */}
                 {expandedCategory === group.category && (
-                  <div className="md:border-t md:border-gray-200 md:divide-y md:divide-gray-100 md:max-h-80 md:overflow-y-auto">
+                  <div className="md:border-t md:border-gray-200 md:divide-y md:divide-gray-100  ">
                     {/* Desktop Table */}
                     <div className="hidden md:block">
                       {/* Header */}
@@ -968,7 +968,7 @@ export default function ProductsClient() {
           // FLAT LIST VIEW
           <div className="md:bg-white md:border md:border-gray-200 md:rounded-lg md:overflow-hidden">
             {/* Desktop Table */}
-            <div className="hidden md:block divide-y divide-gray-100 max-h-screen overflow-y-auto">
+            <div className="hidden md:block divide-y divide-gray-100">
               {/* Header - Desktop only */}
               <div
                 className="grid gap-2 px-4 py-2.5 bg-gray-50 sticky top-0 z-10 text-xs font-semibold text-gray-700 border-b border-gray-200"
