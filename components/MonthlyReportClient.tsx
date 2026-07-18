@@ -474,12 +474,14 @@ function getMonthData(
 
     // Always tally worked days into the employee's weekly attendance
     // bucket (even for padding days outside the selected month), so a
-    // week's attendance is judged on the complete Monday-Sunday span.
-    // Sunday is treated as the rest day and excluded from the
-    // "fully-attended working week" count (Mon-Sat = 6 working days).
+    // week's attendance is judged on the complete Monday-Sunday span. Her
+    // rest day can fall on any day of the week (not fixed to Sunday), so
+    // every worked day is tracked here - the "fully-attended" check later
+    // simply looks for 6 worked days out of the week's 7 (i.e. every day
+    // except her one rest day).
     const weekKey = getWeekKey(clockIn);
     const dutyDateKeyForWeek = `${clockIn.getFullYear()}-${String(clockIn.getMonth() + 1).padStart(2, "0")}-${String(clockIn.getDate()).padStart(2, "0")}`;
-    if (clockIn.getDay() !== 0 && hours > 0) {
+    if (hours > 0) {
       const weekWorkMap =
         workDaysByEmployeeWeek.get(employeeName) ||
         new Map<string, Set<string>>();
@@ -574,13 +576,19 @@ function getMonthData(
       // (monthly-rated employee):
       //  - Daily rate = Basic / 26
       //  - Hourly rate = Daily rate / normal daily hours (8)
-      //  - Normal-day OT (Mon-Sat): hours beyond 8/day paid at 1.5x hourly
-      //    rate.
-      //  - Rest-day OT (Sunday): normal-hours portion paid as half/full a
-      //    day's wage (half a day's wage if she worked half a day or less,
-      //    else a full day's wage), plus hours beyond the normal 8-hour day
+      //  - Normal-day OT: hours beyond 8/day paid at 1.5x hourly rate.
+      //  - Rest-day OT: normal-hours portion paid as half/full a day's
+      //    wage (half a day's wage if she worked half a day or less, else
+      //    a full day's wage), plus hours beyond the normal 8-hour day
       //    paid at 2x hourly rate.
       //  - Statutory cap: max 104 OT hours counted per month.
+      //
+      // Putri's weekly rest day is not fixed to Sunday - she may choose
+      // any day off. Per week, the rest day is determined as the last
+      // unworked calendar day of that Monday-Sunday week (if she has more
+      // than one day off, the EA treats the last one in the week as the
+      // designated rest day; if she worked every day that week, Sunday is
+      // used as the statutory default since a rest day must exist).
       // Plus a performance bonus (1% of revenue, floored, clamped
       // RM100-RM300) and a business-policy attendance allowance (RM50 per
       // fully-attended Mon-Sat working week - independent of OT, since
@@ -594,12 +602,41 @@ function getMonthData(
 
       const dayMap =
         hoursByEmployeeDay.get(employeeName) || new Map<string, number>();
+
+      // Determine each week's rest day: for every week this employee has
+      // at least one recorded day in, find which day-of-week (Mon=0 .. Sun=6)
+      // was NOT worked, and use the latest such day in the week as the
+      // rest day. Falls back to Sunday (6) if every day of the week was
+      // worked.
+      const weekWorkedDows = new Map<string, Set<number>>();
+      for (const dateKey of dayMap.keys()) {
+        const dateObj = new Date(dateKey + "T00:00:00");
+        const wk = getWeekKey(dateObj);
+        const dow = (dateObj.getDay() + 6) % 7; // remap Sun=0..Sat=6 -> Mon=0..Sun=6
+        const set = weekWorkedDows.get(wk) || new Set<number>();
+        set.add(dow);
+        weekWorkedDows.set(wk, set);
+      }
+      const restDayByWeek = new Map<string, number>();
+      for (const [wk, workedDows] of weekWorkedDows.entries()) {
+        let restDow = 6; // default Sunday if every day worked
+        for (let d = 6; d >= 0; d--) {
+          if (!workedDows.has(d)) {
+            restDow = d;
+            break;
+          }
+        }
+        restDayByWeek.set(wk, restDow);
+      }
+
       let normalOtHours = 0;
       let restDayPay = 0;
       for (const [dateKey, paidHoursForDay] of dayMap.entries()) {
-        const dateObj = new Date(dateKey + "T00:00:00");
-        const isRestDay = dateObj.getDay() === 0; // Sunday
         if (paidHoursForDay <= 0) continue;
+        const dateObj = new Date(dateKey + "T00:00:00");
+        const wk = getWeekKey(dateObj);
+        const dow = (dateObj.getDay() + 6) % 7;
+        const isRestDay = dow === (restDayByWeek.get(wk) ?? 6);
         if (isRestDay) {
           const normalPortion = Math.min(paidHoursForDay, NORMAL_DAILY_HOURS);
           const excessPortion = Math.max(
@@ -618,9 +655,10 @@ function getMonthData(
       const cappedOtHours = Math.min(normalOtHours, MAX_MONTHLY_OT_HOURS);
       const otPay = cappedOtHours * hourlyRate * 1.5 + restDayPay;
 
-      // Attendance allowance: RM50 for each complete Mon-Sat working week
-      // (all 6 working days attended) whose Monday falls in this month -
-      // avoids double-counting a week that straddles two calendar months.
+      // Attendance allowance: RM50 for each complete working week (6 days
+      // worked out of 7, i.e. every day except her one rest day) whose
+      // Monday falls in this month - avoids double-counting a week that
+      // straddles two calendar months.
       const weekWorkMap =
         workDaysByEmployeeWeek.get(employeeName) ||
         new Map<string, Set<string>>();
