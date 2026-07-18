@@ -547,13 +547,24 @@ function getMonthData(
       // Putri: Basic RM1750 + weekly attendance allowance (RM100/RM200) +
       // performance bonus (1% of revenue, floored, clamped RM100-RM300) +
       // OT at RM8/hour for hours beyond 45/week.
+      //
+      // A Monday-Sunday week can straddle two calendar months. To avoid
+      // double-counting that week's OT/allowance in both months' reports,
+      // a week is only "claimed" by the month containing its Monday
+      // (week start) - the other month simply ignores that week's hours
+      // for OT purposes.
       const weekMap =
         hoursByEmployeeWeek.get(employeeName) || new Map<string, number>();
       const NORMAL_WEEKLY_HOURS = 45;
       const OT_RATE = 8;
       let attendanceAllowance = 0;
       let otPay = 0;
-      for (const weeklyHours of weekMap.values()) {
+      for (const [weekKey, weeklyHours] of weekMap.entries()) {
+        const [wYear, wMonth] = weekKey.split("-").map(Number);
+        const weekBelongsToThisMonth =
+          wYear === year && wMonth - 1 === month;
+        if (!weekBelongsToThisMonth) continue;
+
         attendanceAllowance += weeklyHours >= NORMAL_WEEKLY_HOURS ? 50 : 0;
         if (weeklyHours > NORMAL_WEEKLY_HOURS) {
           otPay += (weeklyHours - NORMAL_WEEKLY_HOURS) * OT_RATE;
