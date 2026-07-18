@@ -398,9 +398,13 @@ function getMonthData(
   // applied) per employee, used to render a daily shift table per staff.
   const shiftsByEmployee = new Map<string, ShiftRow[]>();
 
-  // Track hours per employee per calendar week (Monday-start), used for
-  // Putri's weekly attendance allowance / overtime calculation.
-  const hoursByEmployeeWeek = new Map<string, Map<string, number>>();
+  // Track which Mon-Sat calendar days an employee actually worked,
+  // bucketed by calendar week (Monday-start). Used for Putri's attendance
+  // allowance (paid per fully-attended working week, independent of OT).
+  const workDaysByEmployeeWeek = new Map<string, Map<string, Set<string>>>();
+  // Track paid hours per employee per calendar day (month-scoped only),
+  // used to compute Putri's daily overtime per the Employment Act 1955.
+  const hoursByEmployeeDay = new Map<string, Map<string, number>>();
   const getWeekKey = (date: Date) => {
     const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const dayOfWeek = d.getDay(); // 0 (Sun) - 6 (Sat)
@@ -416,11 +420,13 @@ function getMonthData(
     if (!clockIn) continue;
 
     // Timesheets are fetched for a padded range (full Monday-Sunday weeks
-    // overlapping the month) so weekly overtime totals are accurate at the
-    // month boundary. Entries outside the actual selected month still
-    // contribute to that week's hour total (for OT/allowance purposes)
-    // but are excluded from month-scoped totals: labor cost, the daily
-    // shift tables, and staff-on-duty tracking.
+    // overlapping the month) so weekly attendance is judged on complete
+    // weeks even at the month boundary. Entries outside the actual
+    // selected month still contribute to that week's attendance tracking
+    // (for the allowance) but are excluded from month-scoped totals:
+    // labor cost, the daily shift tables, staff-on-duty tracking, and
+    // Putri's daily overtime (computed per calendar day within the
+    // selected month only).
     const isInSelectedMonth =
       clockIn.getMonth() === month && clockIn.getFullYear() === year;
 
@@ -466,18 +472,27 @@ function getMonthData(
     }
     const hours = Math.max(0, rawHours - breakDeduction);
 
-    // Always tally hours into the employee's weekly bucket (even for
-    // padding days outside the selected month) so weekly OT (>45 hrs) is
-    // computed against complete Monday-Sunday weeks.
+    // Always tally worked days into the employee's weekly attendance
+    // bucket (even for padding days outside the selected month), so a
+    // week's attendance is judged on the complete Monday-Sunday span.
+    // Sunday is treated as the rest day and excluded from the
+    // "fully-attended working week" count (Mon-Sat = 6 working days).
     const weekKey = getWeekKey(clockIn);
-    const weekMap =
-      hoursByEmployeeWeek.get(employeeName) || new Map<string, number>();
-    weekMap.set(weekKey, (weekMap.get(weekKey) || 0) + hours);
-    hoursByEmployeeWeek.set(employeeName, weekMap);
+    const dutyDateKeyForWeek = `${clockIn.getFullYear()}-${String(clockIn.getMonth() + 1).padStart(2, "0")}-${String(clockIn.getDate()).padStart(2, "0")}`;
+    if (clockIn.getDay() !== 0 && hours > 0) {
+      const weekWorkMap =
+        workDaysByEmployeeWeek.get(employeeName) ||
+        new Map<string, Set<string>>();
+      const daySet = weekWorkMap.get(weekKey) || new Set<string>();
+      daySet.add(dutyDateKeyForWeek);
+      weekWorkMap.set(weekKey, daySet);
+      workDaysByEmployeeWeek.set(employeeName, weekWorkMap);
+    }
 
     // Everything below this point is month-scoped: labor cost, the daily
-    // shift tables, and staff-on-duty-per-day tracking should only reflect
-    // shifts that actually fall within the selected month.
+    // shift tables, staff-on-duty-per-day tracking, and Putri's daily
+    // overtime should only reflect shifts that actually fall within the
+    // selected month.
     if (!isInSelectedMonth) continue;
 
     const dutyDateKeyForShift = `${clockIn.getFullYear()}-${String(clockIn.getMonth() + 1).padStart(2, "0")}-${String(clockIn.getDate()).padStart(2, "0")}`;
@@ -502,6 +517,17 @@ function getMonthData(
     current.hours += hours;
     current.cost += laborCost;
     laborMap.set(employeeName, current);
+
+    // Track paid hours per calendar day (month-scoped), used for Putri's
+    // daily overtime calculation (Employment Act 1955: OT is based on
+    // hours beyond the normal daily hours, not a weekly bucket).
+    const dayMap =
+      hoursByEmployeeDay.get(employeeName) || new Map<string, number>();
+    dayMap.set(
+      dutyDateKeyForShift,
+      (dayMap.get(dutyDateKeyForShift) || 0) + hours,
+    );
+    hoursByEmployeeDay.set(employeeName, dayMap);
 
     const dutyDateKey = `${clockIn.getFullYear()}-${String(clockIn.getMonth() + 1).padStart(2, "0")}-${String(clockIn.getDate()).padStart(2, "0")}`;
     const staffSet = staffByDateMap.get(dutyDateKey) || new Set<string>();
@@ -544,35 +570,69 @@ function getMonthData(
         staffSet.delete(employeeName);
       }
     } else if (/putri/i.test(employeeName) && isPutriFulltimeMonth) {
-      // Putri: Basic RM1750 + weekly attendance allowance (RM100/RM200) +
-      // performance bonus (1% of revenue, floored, clamped RM100-RM300) +
-      // OT at RM8/hour for hours beyond 45/week.
-      //
-      // A Monday-Sunday week can straddle two calendar months. To avoid
-      // double-counting that week's OT/allowance in both months' reports,
-      // a week is only "claimed" by the month containing its Monday
-      // (week start) - the other month simply ignores that week's hours
-      // for OT purposes.
-      const weekMap =
-        hoursByEmployeeWeek.get(employeeName) || new Map<string, number>();
-      const NORMAL_WEEKLY_HOURS = 45;
-      const OT_RATE = 8;
-      let attendanceAllowance = 0;
-      let otPay = 0;
-      for (const [weekKey, weeklyHours] of weekMap.entries()) {
-        const [wYear, wMonth] = weekKey.split("-").map(Number);
-        const weekBelongsToThisMonth =
-          wYear === year && wMonth - 1 === month;
-        if (!weekBelongsToThisMonth) continue;
+      // Putri: Basic RM1750/month, structured per the Employment Act 1955
+      // (monthly-rated employee):
+      //  - Daily rate = Basic / 26
+      //  - Hourly rate = Daily rate / normal daily hours (8)
+      //  - Normal-day OT (Mon-Sat): hours beyond 8/day paid at 1.5x hourly
+      //    rate.
+      //  - Rest-day OT (Sunday): normal-hours portion paid as half/full a
+      //    day's wage (half a day's wage if she worked half a day or less,
+      //    else a full day's wage), plus hours beyond the normal 8-hour day
+      //    paid at 2x hourly rate.
+      //  - Statutory cap: max 104 OT hours counted per month.
+      // Plus a performance bonus (1% of revenue, floored, clamped
+      // RM100-RM300) and a business-policy attendance allowance (RM50 per
+      // fully-attended Mon-Sat working week - independent of OT, since
+      // attendance and overtime are different things).
+      const BASIC_SALARY = 1750;
+      const NORMAL_DAILY_HOURS = 8;
+      const WAGE_DIVISOR_DAYS = 26;
+      const MAX_MONTHLY_OT_HOURS = 104;
+      const dailyRate = BASIC_SALARY / WAGE_DIVISOR_DAYS;
+      const hourlyRate = dailyRate / NORMAL_DAILY_HOURS;
 
-        attendanceAllowance += weeklyHours >= NORMAL_WEEKLY_HOURS ? 50 : 0;
-        if (weeklyHours > NORMAL_WEEKLY_HOURS) {
-          otPay += (weeklyHours - NORMAL_WEEKLY_HOURS) * OT_RATE;
+      const dayMap =
+        hoursByEmployeeDay.get(employeeName) || new Map<string, number>();
+      let normalOtHours = 0;
+      let restDayPay = 0;
+      for (const [dateKey, paidHoursForDay] of dayMap.entries()) {
+        const dateObj = new Date(dateKey + "T00:00:00");
+        const isRestDay = dateObj.getDay() === 0; // Sunday
+        if (paidHoursForDay <= 0) continue;
+        if (isRestDay) {
+          const normalPortion = Math.min(paidHoursForDay, NORMAL_DAILY_HOURS);
+          const excessPortion = Math.max(
+            0,
+            paidHoursForDay - NORMAL_DAILY_HOURS,
+          );
+          const dayWagePay =
+            normalPortion <= NORMAL_DAILY_HOURS / 2 ? dailyRate / 2 : dailyRate;
+          restDayPay += dayWagePay + excessPortion * hourlyRate * 2;
+        } else {
+          normalOtHours += Math.max(0, paidHoursForDay - NORMAL_DAILY_HOURS);
         }
       }
+      // Cap normal OT hours at the statutory monthly maximum (rest-day pay
+      // is a separate entitlement and is not subject to this cap).
+      const cappedOtHours = Math.min(normalOtHours, MAX_MONTHLY_OT_HOURS);
+      const otPay = cappedOtHours * hourlyRate * 1.5 + restDayPay;
 
-      if (data.hours > 0 || weekMap.size > 0) {
-        const BASIC_SALARY = 1750;
+      // Attendance allowance: RM50 for each complete Mon-Sat working week
+      // (all 6 working days attended) whose Monday falls in this month -
+      // avoids double-counting a week that straddles two calendar months.
+      const weekWorkMap =
+        workDaysByEmployeeWeek.get(employeeName) ||
+        new Map<string, Set<string>>();
+      let attendanceAllowance = 0;
+      for (const [weekKey, daySet] of weekWorkMap.entries()) {
+        const [wYear, wMonth] = weekKey.split("-").map(Number);
+        const weekBelongsToThisMonth = wYear === year && wMonth - 1 === month;
+        if (!weekBelongsToThisMonth) continue;
+        if (daySet.size >= 6) attendanceAllowance += 50;
+      }
+
+      if (data.hours > 0 || dayMap.size > 0) {
         const rawBonus = Math.floor(reportData.totalRevenue * 0.01);
         const performanceBonus = Math.min(300, Math.max(100, rawBonus));
         const totalCost =
