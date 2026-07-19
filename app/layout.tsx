@@ -1,3 +1,4 @@
+import { getSession } from "@/lib/auth/session";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Footer from "../components/Footer";
@@ -20,18 +21,20 @@ export const metadata: Metadata = {
     "Gembira Momento — souvenir shop located in front of KLCC, Kuala Lumpur.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await getSession();
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased light`}
     >
       <body className="min-h-screen flex flex-col bg-background text-foreground">
-        <Header />
+        <Header role={session?.role ?? null} />
         <main className="flex-1">{children}</main>
         <Footer />
       </body>

@@ -1,50 +1,67 @@
-# Password Protection Setup
+# Authentication & Authorization
 
-## Protected Pages
+The management portal uses real accounts (stored in Postgres/Neon) with
+signed, httpOnly session cookies — no more shared password / localStorage.
 
-The following management pages are now password-protected:
+## Roles
 
-- `/reports` - Monthly financial reports
-- `/sales-assessment` - Sales analysis and breakdown
-- `/products` - Product inventory and management
+| Role         | Access                                                                             |
+| ------------ | ---------------------------------------------------------------------------------- |
+| `ADMIN`      | Everything, plus generating one-time registration links (`/admin/register-link`)   |
+| `MANAGEMENT` | All management pages (dashboard, reports, sales analytics, products, live monitor) |
+| `SUPERVISOR` | Live monitor, sales analytics, products                                            |
+| `STAFF`      | Live monitor only (`/dashboard/sales-dashboard`)                                   |
 
-## Configuration
+Route → role mapping lives in `lib/auth/roles.ts` (`ROUTE_ACCESS`).
 
-### Setting the Admin Password
+## How it works
 
-1. Create or edit `.env.local` in the project root:
+1. **`proxy.ts`** (root) runs on every request (Next.js 16 renamed
+   Middleware → Proxy). It decodes the `gm_session` cookie (a JWT signed
+   with `SESSION_SECRET`) and:
+   - Redirects unauthenticated users hitting a protected route to `/login`.
+   - Redirects authenticated users whose role isn't allowed for a route to
+     their own default page.
+   - Redirects already-logged-in users away from `/login`.
+2. **`lib/auth/session.ts`** creates/reads/deletes the session cookie
+   (`jose` JWT, 24h expiry, httpOnly + secure in production).
+3. **`lib/auth/dal.ts`** exposes `verifySession()` / `requireRole()` for a
+   secure, server-side check close to the data (used in `protected-layout.tsx`
+   and the admin page), per Next.js's recommended Data Access Layer pattern.
+4. **`app/actions/auth.ts`** contains the Server Actions: `login`,
+   `logout`, `registerWithToken`, `generateRegistrationLink`.
+5. **`lib/auth/users.ts`** talks to Postgres (`users`, `registration_tokens`
+   tables — see `scripts/db/schema.sql`). Passwords are hashed with bcrypt.
+
+## Registration links (ADMIN only)
+
+Admins can generate a **single-use** invite link from
+`/admin/register-link`, choosing the role for the new account. The link
+looks like `/register/<token>`. Visiting it lets someone create their own
+username/email/password; once used, the token is marked `used_at` and can
+never be reused again.
+
+## Seeding the initial admin account
 
 ```bash
-NEXT_PUBLIC_ADMIN_PASSWORD=your-secure-password
+npm run db:init         # creates users / registration_tokens tables
+npm run db:seed-admin   # creates/updates the admin account
 ```
 
-2. The default password is `gembira2026` (can be changed)
+The seeded admin (edit `scripts/db/seedAdminUser.js` to change):
 
-### Password Features
+- username: `jangbersahaja`
+- email: `mmuter4@gmail.com`
+- password: `jang1234`
 
-- **Session Duration**: 24 hours (sessions expire after 1 day)
-- **Logout Button**: Appears in top-right corner of protected pages
-- **Persistent Sessions**: Uses browser localStorage
+**Change this password** by re-running the seed script with a new value.
 
-## How to Use
+## Environment variables
 
-1. Access any protected page (e.g., `/reports`)
-2. You'll be redirected to `/login`
-3. Enter the admin password
-4. Click "Access Portal"
-5. You'll be authenticated for 24 hours
-6. Click "Logout" to immediately end your session
+```bash
+# .env.local
+SESSION_SECRET=<openssl rand -base64 32>
+DATABASE_URL=postgresql://...
+```
 
-## Security Notes
-
-⚠️ **Important**:
-
-- The password is stored as an environment variable
-- Change the default password immediately in production
-- The authentication is client-side only (localStorage)
-- For production, consider implementing server-side authentication
-- HTTPS is required for production deployments
-
-## Changing the Password
-
-Simply update the `NEXT_PUBLIC_ADMIN_PASSWORD` in `.env.local` and restart the application.
+`NEXT_PUBLIC_ADMIN_PASSWORD` is no longer used and can be removed.

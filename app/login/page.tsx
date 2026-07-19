@@ -1,38 +1,16 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { login, type LoginState } from "@/app/actions/auth";
+import { useSearchParams } from "next/navigation";
+import { useActionState } from "react";
 
 export default function LoginPage() {
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
-
-  const CORRECT_PASSWORD =
-    process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "gembira2026";
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setIsLoading(true);
-
-    if (password === CORRECT_PASSWORD) {
-      // Store auth token in localStorage
-      localStorage.setItem("auth_token", "authenticated");
-      localStorage.setItem("auth_time", String(Date.now()));
-
-      // Redirect to the intended page or reports
-      const referrer = new URLSearchParams(window.location.search).get("from");
-      router.push(referrer || "/reports");
-      router.refresh();
-    } else {
-      setError("Incorrect password");
-      setPassword("");
-    }
-
-    setIsLoading(false);
-  };
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("from") || "";
+  const [state, formAction, pending] = useActionState<LoginState, FormData>(
+    login,
+    undefined,
+  );
 
   return (
     <div className="w-full min-h-screen bg-linear-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
@@ -47,7 +25,28 @@ export default function LoginPage() {
           </div>
 
           {/* Login Form */}
-          <form onSubmit={handleLogin} className="space-y-6">
+          <form action={formAction} className="space-y-6">
+            <input type="hidden" name="redirectTo" value={redirectTo} />
+
+            <div>
+              <label
+                htmlFor="identifier"
+                className="block text-sm font-medium text-gray-700 mb-2"
+              >
+                Username or Email
+              </label>
+              <input
+                id="identifier"
+                name="identifier"
+                type="text"
+                placeholder="Enter your username or email"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-700 focus:border-transparent"
+                disabled={pending}
+                autoFocus
+                required
+              />
+            </div>
+
             <div>
               <label
                 htmlFor="password"
@@ -57,28 +56,29 @@ export default function LoginPage() {
               </label>
               <input
                 id="password"
+                name="password"
                 type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter access password"
+                placeholder="Enter your password"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-700 focus:border-transparent"
-                disabled={isLoading}
-                autoFocus
+                disabled={pending}
+                required
               />
             </div>
 
-            {error && (
+            {state?.error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-red-700 text-sm font-medium">{error}</p>
+                <p className="text-red-700 text-sm font-medium">
+                  {state.error}
+                </p>
               </div>
             )}
 
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={pending}
               className="w-full bg-amber-700 hover:bg-amber-800 disabled:bg-gray-400 text-white font-semibold py-3 rounded-lg transition-colors duration-200"
             >
-              {isLoading ? "Logging in..." : "Access Portal"}
+              {pending ? "Logging in..." : "Access Portal"}
             </button>
           </form>
 

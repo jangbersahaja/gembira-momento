@@ -1,11 +1,12 @@
 "use client";
 
+import type { Role } from "@/lib/auth/roles";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-export default function Header() {
+export default function Header({ role }: { role?: Role | null }) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
@@ -36,15 +37,37 @@ export default function Header() {
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/reports") ||
     pathname.startsWith("/sales-assessment") ||
-    pathname.startsWith("/products");
+    pathname.startsWith("/products") ||
+    pathname.startsWith("/admin");
 
-  const managementLinks = [
-    { href: "/dashboard", label: "Dashboard" },
-    { href: "/dashboard/sales-dashboard", label: "Live Monitor" },
-    { href: "/reports", label: "Reports" },
-    { href: "/sales-assessment", label: "Sales Analytics" },
-    { href: "/products", label: "Products" },
+  const allManagementLinks = [
+    { href: "/dashboard", label: "Dashboard", roles: ["ADMIN", "MANAGEMENT"] },
+    {
+      href: "/dashboard/sales-dashboard",
+      label: "Live Monitor",
+      roles: ["ADMIN", "MANAGEMENT", "SUPERVISOR", "STAFF"],
+    },
+    { href: "/reports", label: "Reports", roles: ["ADMIN", "MANAGEMENT"] },
+    {
+      href: "/sales-assessment",
+      label: "Sales Analytics",
+      roles: ["ADMIN", "MANAGEMENT", "SUPERVISOR"],
+    },
+    {
+      href: "/products",
+      label: "Products",
+      roles: ["ADMIN", "MANAGEMENT", "SUPERVISOR"],
+    },
+    {
+      href: "/admin/register-link",
+      label: "Invite User",
+      roles: ["ADMIN"],
+    },
   ];
+
+  const managementLinks = role
+    ? allManagementLinks.filter((link) => link.roles.includes(role))
+    : [];
 
   const publicLinks = [
     { href: "#curation", label: "The Curation" },

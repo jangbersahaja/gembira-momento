@@ -1,64 +1,30 @@
-"use client";
+import { logout } from "@/app/actions/auth";
+import { verifySession } from "@/lib/auth/dal";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-
-export default function ProtectedLayout({
+export default async function ProtectedLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const router = useRouter();
-
-  useEffect(() => {
-    const checkAuth = () => {
-      const token = localStorage.getItem("auth_token");
-      const authTime = localStorage.getItem("auth_time");
-
-      if (token === "authenticated" && authTime) {
-        // Session expires after 24 hours
-        const elapsedTime = Date.now() - Number(authTime);
-        const oneDayInMs = 24 * 60 * 60 * 1000;
-
-        if (elapsedTime < oneDayInMs) {
-          setIsAuthenticated(true);
-          return;
-        }
-      }
-
-      // Not authenticated or session expired
-      localStorage.removeItem("auth_token");
-      localStorage.removeItem("auth_time");
-      setIsAuthenticated(false);
-    };
-
-    checkAuth();
-  }, []);
-
-  useEffect(() => {
-    if (isAuthenticated === false) {
-      router.push("/login");
-    }
-  }, [isAuthenticated, router]);
-
-  if (isAuthenticated === null) {
-    return (
-      <div className="w-full min-h-screen flex items-center justify-center bg-white">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 border-4 border-gray-300 border-t-amber-700 rounded-full animate-spin" />
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return null;
-  }
+  // Secure check close to the data layer — Proxy already performs an
+  // optimistic redirect, but we verify again here per Next.js guidance.
+  const session = await verifySession();
 
   return (
     <div>
+      <div className="w-full bg-slate-900 text-white text-xs">
+        <div className="mx-auto max-w-7xl px-6 py-1.5 flex items-center justify-end gap-3">
+          <span className="text-slate-300">{session.username} </span>
+          <form action={logout}>
+            <button
+              type="submit"
+              className="text-slate-300 hover:text-white underline underline-offset-2"
+            >
+              Logout
+            </button>
+          </form>
+        </div>
+      </div>
       {/* Page Content */}
       {children}
     </div>
