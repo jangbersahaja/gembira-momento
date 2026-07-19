@@ -50,6 +50,13 @@ const formatCurrency = (value: number) => {
   });
 };
 
+// Shift "Open By"/"Close By" fields come with odd leading punctuation from
+// the POS export (e.g. ". Putri", "_ Faris") - strip that off for display.
+const cleanStaffName = (name: string): string => {
+  if (!name) return "-";
+  return name.replace(/^[^a-zA-Z]+/, "").trim() || name;
+};
+
 // Format a break duration in minutes/hours as a short readable string,
 // e.g. "45 min" or "1.25 hrs".
 const formatDuration = (hours: number): string => {
@@ -224,6 +231,21 @@ interface SalaryBreakdown {
   overtimePay: number;
 }
 
+interface CashMovementRow {
+  date: string;
+  openedBy: string;
+  closedBy: string;
+  openingAmount: number;
+  cashSales: number;
+  payIn: number;
+  payOut: number;
+  expectedDrawer: number;
+  actualDrawer: number;
+  overShort: number;
+  closingBalance: number;
+  bankTransfer: number;
+}
+
 interface ReportData {
   month: string;
   year: number;
@@ -266,6 +288,17 @@ interface ReportData {
     cost: number;
     profit: number;
   }>;
+  cashMovementRows: CashMovementRow[];
+  cashMovementTotals: {
+    openingAmount: number;
+    cashSales: number;
+    payIn: number;
+    payOut: number;
+    expectedDrawer: number;
+    actualDrawer: number;
+    overShort: number;
+    bankTransfer: number;
+  };
 }
 
 function getMonthData(
@@ -318,6 +351,17 @@ function getMonthData(
     outrightTotals: { sales: 0, cost: 0, profit: 0 },
     consignmentTotals: { sales: 0, cost: 0, profit: 0 },
     topProducts: [],
+    cashMovementRows: [],
+    cashMovementTotals: {
+      openingAmount: 0,
+      cashSales: 0,
+      payIn: 0,
+      payOut: 0,
+      expectedDrawer: 0,
+      actualDrawer: 0,
+      overShort: 0,
+      bankTransfer: 0,
+    },
   };
 
   // Build product lookup map with SKU and ID (from live API, for cost)
@@ -723,6 +767,116 @@ function getMonthData(
     claimTotal += payOut;
   }
   reportData.claimCost = claimTotal;
+
+  // Cash drawer movement per shift (day): opening balance carried from the
+  // previous day's takeout, cash sales taken in, staff pay-in/pay-out
+  // entries (e.g. adding change or withdrawing cash to bank at end of
+  // shift), and the resulting expected vs actual drawer counts.
+  //
+  // Build a lookup of every shift's closing balance across the ENTIRE
+  // dataset (not just the selected month), so the first day of a month can
+  // still find the actual previous day's closing balance (e.g. the last
+  // day of the prior month) instead of treating it as day one with no
+  // prior balance.
+  const closingBalanceByDateMap = new Map<string, number>();
+  const openingAmountByDateMap = new Map<string, number>();
+  for (const shift of staticShifts as any[]) {
+    const openTime = parseShiftDate(String(shift["Open Time"] || ""));
+    if (!openTime) continue;
+    const dateKey = `${openTime.getFullYear()}-${String(openTime.getMonth() + 1).padStart(2, "0")}-${String(openTime.getDate()).padStart(2, "0")}`;
+    const actualDrawerAllTime =
+      parseFloat(String(shift["Actual Drawer"] || "0")) || 0;
+    closingBalanceByDateMap.set(dateKey, actualDrawerAllTime);
+    const openingAmountAllTime =
+      parseFloat(String(shift["Opening Amount"] || "0")) || 0;
+    openingAmountByDateMap.set(dateKey, openingAmountAllTime);
+  }
+
+  const cashMovementRows: CashMovementRow[] = [];
+  for (const shift of staticShifts as any[]) {
+    const openTime = parseShiftDate(String(shift["Open Time"] || ""));
+    if (!openTime) continue;
+    if (openTime.getMonth() !== month || openTime.getFullYear() !== year) {
+      continue;
+    }
+    const dateStr = `${openTime.getFullYear()}-${String(openTime.getMonth() + 1).padStart(2, "0")}-${String(openTime.getDate()).padStart(2, "0")}`;
+    const openedBy = cleanStaffName(String(shift["Open By"] || ""));
+    const closedBy = cleanStaffName(String(shift["Close By"] || ""));
+    const openingAmount =
+      parseFloat(String(shift["Opening Amount"] || "0")) || 0;
+    const cashSales = parseFloat(String(shift["Cash Sales"] || "0")) || 0;
+    const payIn = parseFloat(String(shift["Pay In"] || "0")) || 0;
+    const payOut = parseFloat(String(shift["Pay Out"] || "0")) || 0;
+    const expectedDrawer =
+      parseFloat(String(shift["Expected Drawer"] || "0")) || 0;
+    const actualDrawer = parseFloat(String(shift["Actual Drawer"] || "0")) || 0;
+    const overShort =
+      parseFloat(String(shift["Cash Drawer Over/Short"] || "0")) || 0;
+    // Actual Drawer is the physical cash counted at end of shift, which
+    // already has the Pay Out (cash withdrawn to bank) removed and any
+    // Pay In (added change) included - so it IS the closing balance left
+    // in the drawer, ready to become tomorrow's opening/change float.
+    const closingBalance = actualDrawer;
+
+    cashMovementRows.push({
+      date: dateStr,
+      openedBy,
+      closedBy,
+      openingAmount,
+      cashSales,
+      payIn,
+      payOut,
+      expectedDrawer,
+      actualDrawer,
+      overShort,
+      closingBalance,
+      bankTransfer: 0, // filled below once we know the previous day's closing balance
+    });
+  }
+  cashMovementRows.sort((a, b) => a.date.localeCompare(b.date));
+
+  // Bank transfer = today's closing balance minus tomorrow's opening
+  // amount. Staff take cash out at end of shift to bank; whatever wasn't
+  // carried forward as tomorrow's change float is the amount actually
+  // transferred to the company bank account. Looks up the next calendar
+  // day's opening amount from the all-time map so this works correctly
+  // even for the last day of the month (next day being in the following
+  // month).
+  for (const row of cashMovementRows) {
+    const currentDate = new Date(row.date + "T00:00:00");
+    const nextDate = new Date(currentDate);
+    nextDate.setDate(nextDate.getDate() + 1);
+    const nextDateKey = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, "0")}-${String(nextDate.getDate()).padStart(2, "0")}`;
+    const nextOpeningAmount = openingAmountByDateMap.get(nextDateKey);
+    row.bankTransfer =
+      nextOpeningAmount !== undefined
+        ? row.closingBalance - nextOpeningAmount
+        : 0;
+  }
+
+  reportData.cashMovementRows = cashMovementRows;
+  reportData.cashMovementTotals = cashMovementRows.reduce(
+    (acc, row) => ({
+      openingAmount: acc.openingAmount + row.openingAmount,
+      cashSales: acc.cashSales + row.cashSales,
+      payIn: acc.payIn + row.payIn,
+      payOut: acc.payOut + row.payOut,
+      expectedDrawer: acc.expectedDrawer + row.expectedDrawer,
+      bankTransfer: acc.bankTransfer + row.bankTransfer,
+      actualDrawer: acc.actualDrawer + row.actualDrawer,
+      overShort: acc.overShort + row.overShort,
+    }),
+    {
+      openingAmount: 0,
+      cashSales: 0,
+      payIn: 0,
+      payOut: 0,
+      expectedDrawer: 0,
+      actualDrawer: 0,
+      overShort: 0,
+      bankTransfer: 0,
+    },
+  );
 
   // Aggregate transaction data
   const dailyDataMap = new Map<
@@ -2156,6 +2310,171 @@ export default function MonthlyReportClient() {
                       </td>
                       <td className="py-2 pl-2 text-right text-green-700">
                         RM {formatCurrency(reportData.totalProfit)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+
+          {/* Cash Drawer Movement Table */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+            <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+              Cash movement
+            </h2>
+            <p className="text-xs md:text-sm text-gray-600 mb-4">
+              Daily cash drawer flow: opening float, cash sales taken in, staff
+              pay-in/pay-out entries, and the counted vs expected drawer amount.
+              At end of shift, staff withdraw cash to be banked (Pay Out) - the
+              remainder (Actual drawer) stays in the drawer as tomorrow&apos;s
+              change float.
+            </p>
+            <div className="overflow-x-auto max-h-96 overflow-y-auto">
+              <table className="w-full text-xs md:text-sm">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b border-gray-200 text-left text-gray-500">
+                    <th className="py-2 pr-2 font-medium">Date</th>
+                    <th className="py-2 px-2 font-medium">Opened by</th>
+                    <th className="py-2 px-2 font-medium">Closed by</th>
+                    <th className="py-2 px-2 font-medium text-right">
+                      Opening balance
+                    </th>
+                    <th className="py-2 px-2 font-medium text-right">
+                      Cash sales
+                    </th>
+                    <th className="py-2 px-2 font-medium text-right">Pay in</th>
+                    <th className="py-2 px-2 font-medium text-right">
+                      Pay out
+                    </th>
+                    <th className="py-2 px-2 font-medium text-right">
+                      Expected drawer
+                    </th>
+                    <th className="py-2 px-2 font-medium text-right">
+                      Actual drawer
+                    </th>
+                    <th className="py-2 px-2 font-medium text-right">
+                      Over/Short
+                    </th>
+                    <th className="py-2 pl-2 font-medium text-right">
+                      To transfer (bank)
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportData.cashMovementRows.map((row) => (
+                    <tr key={row.date} className="border-b border-gray-100">
+                      <td className="py-2 pr-2 font-medium text-gray-900">
+                        {new Date(row.date + "T00:00:00").toLocaleDateString(
+                          "en-MY",
+                          { day: "numeric", month: "short", weekday: "short" },
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-gray-700">
+                        {row.openedBy}
+                      </td>
+                      <td className="py-2 px-2 text-gray-700">
+                        {row.closedBy}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-700">
+                        RM {formatCurrency(row.openingAmount)}
+                      </td>
+                      <td className="py-2 px-2 text-right font-medium text-blue-600">
+                        RM {formatCurrency(row.cashSales)}
+                      </td>
+                      <td className="py-2 px-2 text-right text-green-600">
+                        {row.payIn > 0
+                          ? `+RM ${formatCurrency(row.payIn)}`
+                          : "-"}
+                      </td>
+                      <td className="py-2 px-2 text-right text-red-600">
+                        {row.payOut > 0
+                          ? `-RM ${formatCurrency(row.payOut)}`
+                          : "-"}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-700">
+                        RM {formatCurrency(row.expectedDrawer)}
+                      </td>
+                      <td className="py-2 px-2 text-right font-semibold text-gray-900">
+                        RM {formatCurrency(row.actualDrawer)}
+                      </td>
+                      <td className="py-2 px-2 text-right font-medium">
+                        {row.overShort === 0 ? (
+                          <span className="text-gray-400">RM 0.00</span>
+                        ) : row.overShort > 0 ? (
+                          <span className="text-green-600">
+                            +RM {formatCurrency(row.overShort)}
+                          </span>
+                        ) : (
+                          <span className="text-red-600">
+                            -RM {formatCurrency(Math.abs(row.overShort))}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 pl-2 text-right font-semibold text-purple-700">
+                        RM {formatCurrency(row.bankTransfer)}
+                      </td>
+                    </tr>
+                  ))}
+                  {reportData.cashMovementRows.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={11}
+                        className="py-6 text-center text-gray-500"
+                      >
+                        No cash drawer data for this month
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                {reportData.cashMovementRows.length > 0 && (
+                  <tfoot className="sticky bottom-0 bg-gray-50">
+                    <tr className="border-t-2 border-gray-300 font-semibold">
+                      <td className="py-2 pr-2 text-gray-900" colSpan={3}>
+                        Total
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-900">
+                        RM{" "}
+                        {formatCurrency(
+                          reportData.cashMovementTotals.openingAmount,
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right text-blue-700">
+                        RM{" "}
+                        {formatCurrency(
+                          reportData.cashMovementTotals.cashSales,
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right text-green-700">
+                        RM {formatCurrency(reportData.cashMovementTotals.payIn)}
+                      </td>
+                      <td className="py-2 px-2 text-right text-red-700">
+                        RM{" "}
+                        {formatCurrency(reportData.cashMovementTotals.payOut)}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-900">
+                        RM{" "}
+                        {formatCurrency(
+                          reportData.cashMovementTotals.expectedDrawer,
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-900">
+                        RM{" "}
+                        {formatCurrency(
+                          reportData.cashMovementTotals.actualDrawer,
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-900">
+                        RM{" "}
+                        {formatCurrency(
+                          reportData.cashMovementTotals.overShort,
+                        )}
+                      </td>
+                      <td className="py-2 pl-2 text-right text-purple-700">
+                        RM{" "}
+                        {formatCurrency(
+                          reportData.cashMovementTotals.bankTransfer,
+                        )}
                       </td>
                     </tr>
                   </tfoot>

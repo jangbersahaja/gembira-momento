@@ -2,16 +2,25 @@
 
 import { verifySession } from "@/lib/auth/dal";
 import { defaultRouteForRole, type Role } from "@/lib/auth/roles";
-import { createSession, deleteSession } from "@/lib/auth/session";
+import {
+  createSession,
+  deleteSession,
+  startImpersonation,
+  stopImpersonation as stopImpersonationSession,
+} from "@/lib/auth/session";
 import {
   consumeRegistrationToken,
   createRegistrationToken,
   createUser,
+  deleteRegistrationToken,
+  deleteUser,
   getRegistrationToken,
+  getUserById,
   getUserByIdentifier,
   usernameOrEmailExists,
   verifyPassword,
 } from "@/lib/auth/users";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 export type LoginState = { error?: string } | undefined;
@@ -136,4 +145,107 @@ export async function generateRegistrationLink(
 
   const regToken = await createRegistrationToken(role, session.userId);
   return { link: `/register/${regToken.token}` };
+}
+
+export type RemoveLinkState = { error?: string; success?: boolean } | undefined;
+
+export async function removeRegistrationLink(
+  _prevState: RemoveLinkState,
+  formData: FormData,
+): Promise<RemoveLinkState> {
+  const session = await verifySession();
+  if (session.role !== "ADMIN") {
+    return { error: "Only admins can remove registration links." };
+  }
+
+  const id = Number(formData.get("id"));
+  if (!id || Number.isNaN(id)) {
+    return { error: "Invalid link." };
+  }
+
+  const removed = await deleteRegistrationToken(id);
+  if (!removed) {
+    return {
+      error: "This link could not be removed (it may already be used).",
+    };
+  }
+
+  revalidatePath("/admin/staff");
+  return { success: true };
+}
+
+export type RemoveStaffState =
+  | { error?: string; success?: boolean }
+  | undefined;
+
+export async function removeStaffMember(
+  _prevState: RemoveStaffState,
+  formData: FormData,
+): Promise<RemoveStaffState> {
+  const session = await verifySession();
+  if (session.role !== "ADMIN") {
+    return { error: "Only admins can remove staff accounts." };
+  }
+
+  const id = Number(formData.get("id"));
+  if (!id || Number.isNaN(id)) {
+    return { error: "Invalid account." };
+  }
+
+  if (id === session.userId) {
+    return { error: "You cannot remove your own account." };
+  }
+
+  const removed = await deleteUser(id);
+  if (!removed) {
+    return { error: "This account could not be removed." };
+  }
+
+  revalidatePath("/admin/staff");
+  return { success: true };
+}
+
+export type ImpersonateState = { error?: string } | undefined;
+
+/**
+ * Lets an ADMIN "log in as" another account. The admin's own session is
+ * stashed so they can return to it later via `stopImpersonation`.
+ */
+export async function impersonateUser(
+  _prevState: ImpersonateState,
+  formData: FormData,
+): Promise<ImpersonateState> {
+  const session = await verifySession();
+  if (session.role !== "ADMIN") {
+    return { error: "Only admins can access other accounts." };
+  }
+
+  const id = Number(formData.get("id"));
+  if (!id || Number.isNaN(id)) {
+    return { error: "Invalid account." };
+  }
+
+  if (id === session.userId) {
+    return { error: "You are already signed in as this account." };
+  }
+
+  const target = await getUserById(id);
+  if (!target) {
+    return { error: "That account no longer exists." };
+  }
+
+  await startImpersonation({
+    id: target.id,
+    username: target.username,
+    email: target.email,
+    role: target.role,
+  });
+
+  redirect(defaultRouteForRole(target.role));
+}
+
+/** Restores the original admin session after impersonating another user. */
+export async function stopImpersonation() {
+  const restored = await stopImpersonationSession();
+  redirect(restored ? "/admin/staff" : "/login");
 }

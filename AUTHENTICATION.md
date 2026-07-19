@@ -7,7 +7,7 @@ signed, httpOnly session cookies — no more shared password / localStorage.
 
 | Role         | Access                                                                             |
 | ------------ | ---------------------------------------------------------------------------------- |
-| `ADMIN`      | Everything, plus generating one-time registration links (`/admin/register-link`)   |
+| `ADMIN`      | Everything, plus staff & registration link management (`/admin/staff`)             |
 | `MANAGEMENT` | All management pages (dashboard, reports, sales analytics, products, live monitor) |
 | `SUPERVISOR` | Live monitor, sales analytics, products                                            |
 | `STAFF`      | Live monitor only (`/dashboard/sales-dashboard`)                                   |
@@ -29,17 +29,25 @@ Route → role mapping lives in `lib/auth/roles.ts` (`ROUTE_ACCESS`).
    secure, server-side check close to the data (used in `protected-layout.tsx`
    and the admin page), per Next.js's recommended Data Access Layer pattern.
 4. **`app/actions/auth.ts`** contains the Server Actions: `login`,
-   `logout`, `registerWithToken`, `generateRegistrationLink`.
+   `logout`, `registerWithToken`, `generateRegistrationLink`,
+   `removeRegistrationLink`, `removeStaffMember`.
 5. **`lib/auth/users.ts`** talks to Postgres (`users`, `registration_tokens`
    tables — see `scripts/db/schema.sql`). Passwords are hashed with bcrypt.
 
-## Registration links (ADMIN only)
+## Staff management (ADMIN only)
 
-Admins can generate a **single-use** invite link from
-`/admin/register-link`, choosing the role for the new account. The link
-looks like `/register/<token>`. Visiting it lets someone create their own
-username/email/password; once used, the token is marked `used_at` and can
-never be reused again.
+`/admin/staff` combines invite link generation, staff account listing, and
+unused link cleanup in one page:
+
+- **Generate a link**: admins pick a role and create a **single-use** invite
+  link (`/register/<token>`). Visiting it lets someone create their own
+  username/email/password; once used, the token is marked `used_at` and can
+  never be reused again.
+- **Staff accounts**: lists every user with their role; admins can remove an
+  account (except their own).
+- **Unused registration links**: lists links not yet consumed; admins can
+  revoke any of them before they're used. Used links are kept as an audit
+  trail and cannot be removed.
 
 ## Seeding the initial admin account
 

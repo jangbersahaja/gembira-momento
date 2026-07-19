@@ -26,6 +26,16 @@ export async function getUserByIdentifier(
   return (rows[0] as User) || null;
 }
 
+export async function getUserById(id: number): Promise<User | null> {
+  const rows = await sql`
+    SELECT id, username, email, password_hash, role, created_at
+    FROM users
+    WHERE id = ${id}
+    LIMIT 1
+  `;
+  return (rows[0] as User) || null;
+}
+
 export async function verifyPassword(
   plainPassword: string,
   passwordHash: string,
@@ -60,6 +70,33 @@ export async function usernameOrEmailExists(
     SELECT id FROM users
     WHERE lower(username) = lower(${username}) OR lower(email) = lower(${email})
     LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
+export async function listUsers(): Promise<User[]> {
+  const rows = await sql`
+    SELECT id, username, email, password_hash, role, created_at
+    FROM users
+    ORDER BY created_at DESC
+  `;
+  return rows as User[];
+}
+
+/**
+ * Deletes a staff account. Any registration tokens the user created or
+ * consumed are detached (set to NULL) rather than cascading, preserving
+ * the audit trail of link creation/usage.
+ */
+export async function deleteUser(id: number): Promise<boolean> {
+  await sql`
+    UPDATE registration_tokens SET created_by = NULL WHERE created_by = ${id}
+  `;
+  await sql`
+    UPDATE registration_tokens SET used_by = NULL WHERE used_by = ${id}
+  `;
+  const rows = await sql`
+    DELETE FROM users WHERE id = ${id} RETURNING id
   `;
   return rows.length > 0;
 }
@@ -125,6 +162,19 @@ export async function consumeRegistrationToken(
     UPDATE registration_tokens
     SET used_at = now(), used_by = ${usedBy}
     WHERE token = ${token} AND used_at IS NULL
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
+/**
+ * Deletes an *unused* registration link. Used links are kept as an audit
+ * trail and cannot be removed this way.
+ */
+export async function deleteRegistrationToken(id: number): Promise<boolean> {
+  const rows = await sql`
+    DELETE FROM registration_tokens
+    WHERE id = ${id} AND used_at IS NULL
     RETURNING id
   `;
   return rows.length > 0;

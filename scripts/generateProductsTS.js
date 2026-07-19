@@ -3,7 +3,7 @@ const path = require("path");
 const Papa = require("papaparse");
 
 // Read the CSV file
-const csvPath = path.join(__dirname, "../public/data/Products (10).csv");
+const csvPath = path.join(__dirname, "../public/data/Products (11).csv");
 const csvContent = fs.readFileSync(csvPath, "utf-8");
 
 // Parse CSV

@@ -59,8 +59,8 @@ export default function Header({ role }: { role?: Role | null }) {
       roles: ["ADMIN", "MANAGEMENT", "SUPERVISOR"],
     },
     {
-      href: "/admin/register-link",
-      label: "Invite User",
+      href: "/admin/staff",
+      label: "Staff Management",
       roles: ["ADMIN"],
     },
   ];
