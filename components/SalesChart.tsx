@@ -61,6 +61,14 @@ export type CumulativePoint = {
   average: number;
 };
 
+export type StockHistoryPoint = {
+  label: string; // formatted date/time for X axis
+  timestamp: number; // for sorting/reference
+  stock: number | null; // reconstructed stock-on-hand for this day (null = unknown)
+  sold: number | null; // units sold that day, from StoreHub transactions (null = none)
+  isActualSnapshot: boolean; // true if `stock` came from a real captured snapshot, false if reconstructed from sales
+};
+
 const TooltipContent = ({
   active,
   payload,
@@ -464,6 +472,104 @@ export function CumulativeSalesChart({ data }: { data: CumulativePoint[] }) {
           stroke="#f97316"
           strokeWidth={2}
           dot={false}
+          isAnimationActive={false}
+        />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+/**
+ * Stock Level vs Sales chart — plots the last 30 days of daily stock-on-hand
+ * (reconstructed from real captured snapshots + daily sales, see
+ * app/products/[sku]/page.tsx) against units sold per day. Uses a dual Y-axis
+ * (stock on the left, sold-per-day on the right) so fast-moving items with a
+ * large stock count but small daily sales (e.g. 500 units on hand, 1-30 sold
+ * per day) remain readable instead of the sales bars flattening to nothing.
+ * A declining line alongside sales bars shows normal depletion; a jump back
+ * up more than sales alone would explain reflects a real restock/stocking
+ * event captured at a shift clock-in/out.
+ */
+export function StockVsSalesChart({ data }: { data: StockHistoryPoint[] }) {
+  const StockTooltip = ({
+    active,
+    payload,
+    label,
+  }: {
+    active?: boolean;
+    payload?: { name: string; value: number; color: string }[];
+    label?: string;
+  }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="rounded-lg border bg-white p-3 shadow-lg text-sm">
+        <p className="font-semibold text-gray-900 mb-2">{label}</p>
+        {payload.map((p) => (
+          <p key={p.name} style={{ color: p.color }}>
+            {p.name}: {p.value}
+          </p>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <ComposedChart
+        data={data}
+        margin={{ top: 8, right: 16, left: 8, bottom: 48 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+        <XAxis
+          dataKey="label"
+          tick={{ fontSize: 10 }}
+          angle={-40}
+          textAnchor="end"
+          interval="preserveStartEnd"
+        />
+        <YAxis
+          yAxisId="stock"
+          orientation="left"
+          tick={{ fontSize: 11 }}
+          width={44}
+          label={{
+            value: "Stock",
+            angle: -90,
+            position: "insideLeft",
+            fontSize: 11,
+          }}
+        />
+        <YAxis
+          yAxisId="sold"
+          orientation="right"
+          tick={{ fontSize: 11 }}
+          width={36}
+          label={{
+            value: "Sold/day",
+            angle: 90,
+            position: "insideRight",
+            fontSize: 11,
+          }}
+        />
+        <Tooltip content={<StockTooltip />} />
+        <Legend wrapperStyle={{ paddingTop: 56, fontSize: 12 }} />
+        <Bar
+          yAxisId="sold"
+          dataKey="sold"
+          name="Sold"
+          fill="#f43f5e"
+          radius={[3, 3, 0, 0]}
+          maxBarSize={18}
+        />
+        <Line
+          yAxisId="stock"
+          type="monotone"
+          dataKey="stock"
+          name="Stock on Hand"
+          stroke="#4f46e5"
+          strokeWidth={2}
+          dot={{ r: 3 }}
+          connectNulls
           isAnimationActive={false}
         />
       </ComposedChart>

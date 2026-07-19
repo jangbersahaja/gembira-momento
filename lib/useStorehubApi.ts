@@ -234,6 +234,40 @@ export function useShifts(filters?: {
 }
 
 /**
+ * Hook for fetching DB-backed restocking advice for a SKU (see
+ * lib/restockingLogic.ts and app/api/restock-advice/[sku]/route.ts).
+ */
+export function useRestockAdvice(sku: string, storeId?: string) {
+  const fetchAdvice = useCallback(async () => {
+    if (!sku) throw new Error("sku is required to fetch restock advice");
+    const query = storeId ? `?storeId=${encodeURIComponent(storeId)}` : "";
+    const res = await fetch(
+      `/api/restock-advice/${encodeURIComponent(sku)}${query}`,
+    );
+    if (!res.ok) throw new Error("Failed to fetch restock advice");
+    return res.json();
+  }, [sku, storeId]);
+
+  return useApiData(fetchAdvice, [sku, storeId]);
+}
+
+/**
+ * Hook for fetching raw stock snapshot + restock event history for a SKU
+ * (see app/api/stock-history/[sku]/route.ts). Used to render the Stock
+ * Level vs Sales chart on the product detail page.
+ */
+export function useStockHistory(sku: string) {
+  const fetchHistory = useCallback(async () => {
+    if (!sku) throw new Error("sku is required to fetch stock history");
+    const res = await fetch(`/api/stock-history/${encodeURIComponent(sku)}`);
+    if (!res.ok) throw new Error("Failed to fetch stock history");
+    return res.json();
+  }, [sku]);
+
+  return useApiData(fetchHistory, [sku]);
+}
+
+/**
  * Hook for fetching a sales report
  */
 export function useSalesReport(startDate: string, endDate: string) {

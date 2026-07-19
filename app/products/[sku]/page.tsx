@@ -1,8 +1,14 @@
 "use client";
 
 import {
+  StockVsSalesChart,
+  type StockHistoryPoint,
+} from "@/components/SalesChart";
+import {
   useInventory,
   useProducts,
+  useRestockAdvice,
+  useStockHistory,
   useTransactions,
 } from "@/lib/useStorehubApi";
 import { useRouter } from "next/navigation";
@@ -44,6 +50,8 @@ export default function ProductDetailsPage({ params }: PageProps) {
   const { data: transactionsData, loading: transactionsLoading } =
     useTransactions();
   const { data: inventoryData } = useInventory(storeId);
+  const { data: restockAdviceData } = useRestockAdvice(decodedSku, storeId);
+  const { data: stockHistoryData } = useStockHistory(decodedSku);
 
   // Get product from CSV for supplier info
   const csvProduct = useMemo(() => {
@@ -163,64 +171,6 @@ export default function ProductDetailsPage({ params }: PageProps) {
       }
     }
 
-    // Calculate restocking suggestion
-    let restockingSuggestion: {
-      shouldRestock: boolean;
-      quantity: number;
-      urgency: "critical" | "high" | "medium" | "low" | "none";
-      daysUntilStockout?: number;
-      reason: string;
-    } | null = null;
-
-    if (inventory) {
-      const currentStock = inventory.quantityOnHand;
-      const warningLevel = inventory.warningStock || 0;
-      const idealLevel = inventory.idealStock || warningLevel * 2;
-
-      // Calculate daily sales velocity from last 30 days
-      const last30Days = Array.from(monthlyData.values());
-      const dailySalesVelocity =
-        last30Days.length > 0
-          ? last30Days.reduce((sum, d) => sum + d.qty, 0) / 30
-          : 0;
-
-      let urgency: "critical" | "high" | "medium" | "low" | "none" = "none";
-      let daysUntilStockout: number | undefined;
-      let reason = "";
-
-      // Determine urgency based on current stock vs warning level
-      if (currentStock <= warningLevel / 2) {
-        urgency = "critical";
-        reason = "Stock critically low";
-      } else if (currentStock < warningLevel) {
-        urgency = "high";
-        reason = "Stock below warning level";
-      } else if (dailySalesVelocity > 0) {
-        // Estimate days until warning level at current velocity
-        const stockAboveWarning = currentStock - warningLevel;
-        daysUntilStockout = Math.ceil(stockAboveWarning / dailySalesVelocity);
-
-        if (daysUntilStockout <= 7) {
-          urgency = "medium";
-          reason = `Will reach warning level in ~${daysUntilStockout} days`;
-        } else if (daysUntilStockout <= 14) {
-          urgency = "low";
-          reason = `Will reach warning level in ~${daysUntilStockout} days`;
-        }
-      }
-
-      // Calculate restocking quantity (restock to ideal level if defined)
-      const restockQuantity = Math.max(0, idealLevel - currentStock);
-
-      restockingSuggestion = {
-        shouldRestock: urgency !== "none" && restockQuantity > 0,
-        quantity: Math.ceil(restockQuantity),
-        urgency,
-        daysUntilStockout,
-        reason,
-      };
-    }
-
     return {
       totalQuantity,
       totalRevenue,
@@ -230,7 +180,6 @@ export default function ProductDetailsPage({ params }: PageProps) {
       transactionCount,
       avgPrice,
       lastTransactionDate: lastTransactionFormatted,
-      restockingSuggestion,
       monthlyData: Array.from(monthlyData.entries())
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([month, data]) => ({
@@ -238,7 +187,150 @@ export default function ProductDetailsPage({ params }: PageProps) {
           ...data,
         })),
     };
-  }, [apiProduct, decodedSku, transactionsData, inventory]);
+  }, [apiProduct, decodedSku, transactionsData]);
+
+  // DB-backed restocking advice (see lib/restockingLogic.ts). Uses stock
+  // snapshots captured automatically at shift clock-in/out; falls back to a
+  // legacy transaction-average estimate server-side until enough snapshots
+  // exist for this SKU.
+  const restockingSuggestion = restockAdviceData as {
+    shouldRestock: boolean;
+    quantity: number;
+    urgency: "critical" | "high" | "medium" | "low" | "none";
+    daysUntilStockout?: number;
+    reason: string;
+    dataSource: "snapshots" | "estimated";
+    snapshotCount: number;
+  } | null;
+
+  // Build a full DAILY stock-on-hand curve for the Stock Level vs Sales
+  // chart, using transactions to fill in every day — not just the sparse
+  // days that happen to have a captured clock-in/out snapshot.
+  //
+  // How: anchor on the most recent real snapshot (ground truth), then walk
+  // backward day-by-day: stock(day) = stock(day+1) - restocked(day+1) + sold(day+1)
+  // i.e. "undo" that day's net change to recover the previous day's ending
+  // stock. Restock deltas (from purchase orders + auto-detected shift
+  // stocking events) are used quietly here purely to keep the reconstruction
+  // accurate — they are not drawn as a separate series, per the simplified
+  // "Stock on Hand vs Sales" view.
+  const stockChartData = useMemo<StockHistoryPoint[]>(() => {
+    const history = stockHistoryData as {
+      snapshots: {
+        quantity: string;
+        event_type: "clock_in" | "clock_out" | "manual";
+        captured_at: string;
+      }[];
+      restockEvents: {
+        quantity: string;
+        source: string;
+        occurred_at: string;
+      }[];
+    } | null;
+
+    if (!history || history.snapshots.length === 0) return [];
+
+    const formatLabel = (day: string) => {
+      const d = new Date(`${day}T00:00:00Z`);
+      return d.toLocaleDateString("en-MY", { month: "short", day: "numeric" });
+    };
+
+    // Daily sold quantity for this SKU, from StoreHub transactions.
+    const soldByDay = new Map<string, number>();
+    if (Array.isArray(transactionsData)) {
+      for (const tx of transactionsData) {
+        if (tx.status !== "completed" || !tx.items) continue;
+        const day = new Date(tx.timestamp).toISOString().slice(0, 10);
+        let qtyForSku = 0;
+        for (const item of tx.items) {
+          if (String(item.sku) === decodedSku) qtyForSku += item.quantity || 0;
+        }
+        if (qtyForSku > 0) {
+          soldByDay.set(day, (soldByDay.get(day) || 0) + qtyForSku);
+        }
+      }
+    }
+
+    // Daily net restock delta (purchase orders, stock takes/returns, and
+    // auto-detected shift stocking events) — used only for reconstruction math.
+    const restockedByDay = new Map<string, number>();
+    for (const r of history.restockEvents) {
+      const day = new Date(r.occurred_at).toISOString().slice(0, 10);
+      restockedByDay.set(
+        day,
+        (restockedByDay.get(day) || 0) + Number(r.quantity),
+      );
+    }
+
+    // Real snapshot values per day (ground truth points — keep latest if
+    // multiple snapshots landed on the same day).
+    const realStockByDay = new Map<string, number>();
+    for (const s of history.snapshots) {
+      const d = new Date(s.captured_at);
+      const day = d.toISOString().slice(0, 10);
+      realStockByDay.set(day, Number(s.quantity)); // relies on snapshots being pre-sorted ascending
+    }
+
+    // Anchor = most recent real snapshot day.
+    const sortedSnapshotDays = Array.from(realStockByDay.keys()).sort();
+    const anchorDay = sortedSnapshotDays[sortedSnapshotDays.length - 1];
+    const anchorStock = realStockByDay.get(anchorDay)!;
+
+    // Earliest day we have ANY signal for (sales, restocks, or a snapshot) —
+    // that's how far back we reconstruct the curve.
+    const allDays = new Set<string>([
+      ...soldByDay.keys(),
+      ...restockedByDay.keys(),
+      ...realStockByDay.keys(),
+    ]);
+    const earliestDay = Array.from(allDays).sort()[0] || anchorDay;
+
+    // Walk every calendar day from earliest → anchor, reconstructing stock
+    // backward from the anchor. Prefer a real snapshot value when one exists
+    // for that exact day (re-anchors / corrects drift).
+    const dayStock = new Map<string, number>();
+    dayStock.set(anchorDay, anchorStock);
+
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    let cursor = new Date(`${anchorDay}T00:00:00Z`).getTime();
+    const earliestTime = new Date(`${earliestDay}T00:00:00Z`).getTime();
+    let runningStock = anchorStock;
+
+    while (cursor > earliestTime) {
+      const currentDay = new Date(cursor).toISOString().slice(0, 10);
+      const prevCursor = cursor - oneDayMs;
+      const prevDay = new Date(prevCursor).toISOString().slice(0, 10);
+
+      // Undo currentDay's net change to get prevDay's ending stock.
+      const soldThatDay = soldByDay.get(currentDay) || 0;
+      const restockedThatDay = restockedByDay.get(currentDay) || 0;
+      runningStock = runningStock - restockedThatDay + soldThatDay;
+
+      // Prefer a real snapshot if one exists for prevDay (corrects drift).
+      const real = realStockByDay.get(prevDay);
+      if (real !== undefined) runningStock = real;
+
+      dayStock.set(prevDay, runningStock);
+      cursor = prevCursor;
+    }
+
+    const points: StockHistoryPoint[] = Array.from(allDays)
+      .sort()
+      .filter((day) => dayStock.has(day) || soldByDay.has(day))
+      .map((day) => ({
+        label: formatLabel(day),
+        timestamp: new Date(`${day}T00:00:00Z`).getTime(),
+        stock: dayStock.get(day) ?? null,
+        sold: soldByDay.get(day) ?? null,
+        isActualSnapshot: realStockByDay.has(day),
+      }));
+
+    // Only display the most recent 30 days — the reconstruction above still
+    // walks the FULL history internally (needed for an accurate running
+    // stock total), we just trim what's rendered.
+    const cutoff = Date.now() - 30 * oneDayMs;
+    return points.filter((p) => p.timestamp >= cutoff);
+  }, [stockHistoryData, transactionsData, decodedSku]);
 
   if (productsLoading || transactionsLoading) {
     return (
@@ -388,14 +480,14 @@ export default function ProductDetailsPage({ params }: PageProps) {
         </div>
 
         {/* Restocking Alert */}
-        {productMetrics?.restockingSuggestion && (
+        {restockingSuggestion && (
           <div
             className={`mb-6 rounded-lg p-4 md:p-5 border-l-4 ${
-              productMetrics.restockingSuggestion.urgency === "critical"
+              restockingSuggestion.urgency === "critical"
                 ? "bg-red-50 border-red-500"
-                : productMetrics.restockingSuggestion.urgency === "high"
+                : restockingSuggestion.urgency === "high"
                   ? "bg-orange-50 border-orange-500"
-                  : productMetrics.restockingSuggestion.urgency === "medium"
+                  : restockingSuggestion.urgency === "medium"
                     ? "bg-yellow-50 border-yellow-500"
                     : "bg-blue-50 border-blue-500"
             }`}
@@ -404,50 +496,76 @@ export default function ProductDetailsPage({ params }: PageProps) {
               <div className="flex-1 min-w-0">
                 <div
                   className={`text-sm md:text-base font-bold mb-1 ${
-                    productMetrics.restockingSuggestion.urgency === "critical"
+                    restockingSuggestion.urgency === "critical"
                       ? "text-red-700"
-                      : productMetrics.restockingSuggestion.urgency === "high"
+                      : restockingSuggestion.urgency === "high"
                         ? "text-orange-700"
-                        : productMetrics.restockingSuggestion.urgency ===
-                            "medium"
+                        : restockingSuggestion.urgency === "medium"
                           ? "text-yellow-700"
                           : "text-blue-700"
                   }`}
                 >
-                  📦 {productMetrics.restockingSuggestion.reason}
+                  📦 {restockingSuggestion.reason || "Stock healthy"}
                 </div>
                 <div className="text-xs md:text-sm text-gray-600">
                   Suggest restocking{" "}
                   <span className="font-semibold">
-                    {productMetrics.restockingSuggestion.quantity} units
+                    {restockingSuggestion.quantity} units
                   </span>
-                  {productMetrics.restockingSuggestion.daysUntilStockout !==
-                    undefined && (
+                  {restockingSuggestion.daysUntilStockout !== undefined && (
                     <>
                       {" "}
                       (will reach warning in ~
-                      {
-                        productMetrics.restockingSuggestion.daysUntilStockout
-                      }{" "}
-                      days)
+                      {restockingSuggestion.daysUntilStockout} days)
                     </>
                   )}
+                </div>
+                <div className="text-[11px] text-gray-400 mt-1">
+                  {restockingSuggestion.dataSource === "snapshots"
+                    ? `Based on ${restockingSuggestion.snapshotCount} shift stock snapshots`
+                    : "Estimated from sales history — will improve as shift stock snapshots accumulate"}
                 </div>
               </div>
               <span
                 className={`text-xs font-bold px-3 py-1 rounded-full shrink-0 ${
-                  productMetrics.restockingSuggestion.urgency === "critical"
+                  restockingSuggestion.urgency === "critical"
                     ? "bg-red-100 text-red-700"
-                    : productMetrics.restockingSuggestion.urgency === "high"
+                    : restockingSuggestion.urgency === "high"
                       ? "bg-orange-100 text-orange-700"
-                      : productMetrics.restockingSuggestion.urgency === "medium"
+                      : restockingSuggestion.urgency === "medium"
                         ? "bg-yellow-100 text-yellow-700"
                         : "bg-blue-100 text-blue-700"
                 }`}
               >
-                {productMetrics.restockingSuggestion.urgency.toUpperCase()}
+                {restockingSuggestion.urgency.toUpperCase()}
               </span>
             </div>
+          </div>
+        )}
+
+        {/* Stock Level vs Sales Chart */}
+        {stockChartData.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-5 mb-6">
+            <h3 className="text-sm md:text-base font-bold text-gray-900 mb-1">
+              Stock on Hand vs Sales (Last 30 Days)
+            </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Blue line (left axis) = daily stock on hand — bold dots are real
+              captured snapshots, light dots are reconstructed backward from
+              sales. Red bars (right axis) = units sold that day. Separate
+              scales keep fast-moving items readable even when stock count is
+              much larger than daily sales. A steady decline shows normal
+              depletion; a jump back up reflects a real restock captured at a
+              shift clock-in/out.
+            </p>
+            <StockVsSalesChart data={stockChartData} />
+          </div>
+        )}
+        {stockChartData.length === 0 && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-5 mb-6 text-center text-sm text-gray-500">
+            No stock snapshot history yet for this SKU. Snapshots are captured
+            automatically at every staff clock-in/out — check back after the
+            next shift.
           </div>
         )}
 

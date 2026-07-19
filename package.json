@@ -10,9 +10,13 @@
     "generate:transactions": "node scripts/generateTransactionsTS.js",
     "generate:products": "node scripts/generateProductsTS.js",
     "generate:timesheets": "node scripts/generateTimesheetsTS.js",
-    "generate:shifts": "node scripts/generateShiftsTS.js"
+    "generate:shifts": "node scripts/generateShiftsTS.js",
+    "db:init": "node scripts/db/migrate.js",
+    "db:seed-restock-history": "node scripts/db/seedRestockHistory.js",
+    "snapshot:manual": "node scripts/db/captureManualSnapshot.js"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "html-to-image": "^1.11.13",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
@@ -28,6 +32,8 @@
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "csv-parse": "^7.0.1",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
