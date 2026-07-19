@@ -487,8 +487,8 @@ export function CumulativeSalesChart({ data }: { data: CumulativePoint[] }) {
  * large stock count but small daily sales (e.g. 500 units on hand, 1-30 sold
  * per day) remain readable instead of the sales bars flattening to nothing.
  * A declining line alongside sales bars shows normal depletion; a jump back
- * up more than sales alone would explain reflects a real restock/stocking
- * event captured at a shift clock-in/out.
+ * up more than sales alone would explain reflects a real restock event
+ * detected from the daily 8pm stock snapshot.
  */
 const StockTooltipContent = ({
   active,

@@ -1,15 +1,17 @@
 -- Restocking advisory schema
 -- Run via: npm run db:init
 
--- Stock levels captured automatically at shift clock-in / clock-out (via
--- StoreHub timesheets polling, see app/api/cron/capture-snapshots/route.ts)
+-- Daily stock-on-hand snapshot per SKU, captured once a day by the cron job
+-- (see app/api/cron/capture-snapshots/route.ts). `shift_key` is kept as the
+-- column name for backward compatibility, but now simply holds the capture
+-- date (YYYY-MM-DD) — one row per SKU per day.
 CREATE TABLE IF NOT EXISTS stock_snapshots (
   id BIGSERIAL PRIMARY KEY,
   sku TEXT NOT NULL,
   product_id TEXT,
   store_id TEXT NOT NULL,
   quantity NUMERIC NOT NULL,
-  event_type TEXT NOT NULL CHECK (event_type IN ('clock_in', 'clock_out', 'manual')),
+  event_type TEXT NOT NULL CHECK (event_type IN ('clock_in', 'clock_out', 'manual', 'daily')),
   employee_id TEXT,
   shift_key TEXT NOT NULL,
   captured_at TIMESTAMPTZ NOT NULL,
@@ -20,8 +22,14 @@ CREATE TABLE IF NOT EXISTS stock_snapshots (
 CREATE INDEX IF NOT EXISTS idx_stock_snapshots_sku_time
   ON stock_snapshots (sku, captured_at);
 
+-- Migration safety: widen the event_type CHECK constraint for databases
+-- created before 'daily' existed (safe / idempotent to re-run).
+ALTER TABLE stock_snapshots DROP CONSTRAINT IF EXISTS stock_snapshots_event_type_check;
+ALTER TABLE stock_snapshots ADD CONSTRAINT stock_snapshots_event_type_check
+  CHECK (event_type IN ('clock_in', 'clock_out', 'manual', 'daily'));
+
 -- Historical + ongoing restocking activity (purchase orders, stock returns,
--- stock takes / manual corrections, and auto-detected shift stocking events).
+-- stock takes / manual corrections, and auto-detected restocking events).
 -- Seeded once from CSV exports, and appended to automatically going forward.
 CREATE TABLE IF NOT EXISTS restock_events (
   id BIGSERIAL PRIMARY KEY,
@@ -45,13 +53,3 @@ CREATE INDEX IF NOT EXISTS idx_restock_events_sku_time
 ALTER TABLE restock_events DROP CONSTRAINT IF EXISTS restock_events_source_check;
 ALTER TABLE restock_events ADD CONSTRAINT restock_events_source_check
   CHECK (source IN ('purchase_order', 'stock_return', 'stock_take', 'manual', 'detected'));
-
--- Dedupe table so the cron job never double-processes the same clock
--- in/out event across runs (StoreHub timesheets are polled on a rolling
--- lookback window).
-CREATE TABLE IF NOT EXISTS processed_shift_events (
-  shift_key TEXT PRIMARY KEY,
-  employee_id TEXT,
-  event_type TEXT NOT NULL,
-  processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);

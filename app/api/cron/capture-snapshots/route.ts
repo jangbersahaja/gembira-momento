@@ -1,40 +1,30 @@
 /**
- * Vercel Cron endpoint — polls StoreHub timesheets for new clock-in / clock-out
- * events, captures a stock snapshot (per SKU) for each new event, and
- * auto-detects restocking that happened DURING a shift.
+ * Vercel Cron endpoint — captures ONE stock snapshot per SKU, once a day.
  *
- * Why capture at both clock-in AND clock-out:
- * StoreHub has no "stock received" webhook/event. But we can infer it:
- * for a completed shift, `expectedStockAtClockOut = stockAtClockIn - unitsSoldDuringShift`.
- * If the ACTUAL stock at clock-out is higher than that, someone must have
- * physically added stock to the shelf during the shift — a "stocking event".
- * The surplus (actual - expected) is the estimated quantity restocked, and
- * gets written to `restock_events` (source: 'detected') automatically, so
- * historical CSV imports are no longer needed going forward.
+ * Runs once daily at 8pm Malaysia time (12:00 UTC), regardless of staff
+ * clock-in/clock-out times (see vercel.json: "0 12 * * *"). Vercel's Hobby
+ * plan only allows once-per-day cron invocations, so this deliberately keeps
+ * things simple: no lookback window, no shift/timesheet dependency.
  *
- * StoreHub has no webhook for shift events either, so we poll on a schedule
- * (see vercel.json) with a rolling lookback window, and dedupe
- * already-processed events via the `processed_shift_events` table.
+ * Each run:
+ *  1. Fetches current inventory + product list for the store.
+ *  2. Inserts one `stock_snapshots` row per SKU with today's date as the
+ *     dedupe key (`shift_key` column holds YYYY-MM-DD — re-running the cron
+ *     on the same day is a no-op via ON CONFLICT DO NOTHING).
+ *  3. Auto-detects restocking by comparing today's snapshot against the most
+ *     recent PRIOR snapshot for each SKU, adjusted for units sold in between:
+ *     if stock is higher than sales alone would explain, the surplus is
+ *     recorded as a `restock_events` row (source: 'detected').
  *
  * Secured with CRON_SECRET — Vercel Cron sends `Authorization: Bearer $CRON_SECRET`
  * automatically when the env var is set.
  */
 import { sql } from "@/lib/db";
-import {
-  getInventory,
-  getProducts,
-  getTimesheets,
-  getTransactions,
-  type Timesheet,
-} from "@/lib/storehubApi";
+import { getInventory, getProducts, getTransactions } from "@/lib/storehubApi";
 import { NextRequest, NextResponse } from "next/server";
 
-// How far back to look for new clock in/out events each run. Should be
-// comfortably larger than the cron interval to tolerate missed/delayed runs.
-const LOOKBACK_HOURS = 3;
-
-// Minimum surplus (units) before we treat a clock-in→clock-out stock delta
-// as a genuine restock rather than rounding noise / a missed sale.
+// Minimum surplus (units) before we treat a day-over-day stock increase as a
+// genuine restock rather than rounding noise / a missed sale.
 const STOCKING_EVENT_THRESHOLD = 1;
 
 function isAuthorized(request: NextRequest): boolean {
@@ -63,78 +53,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const now = new Date();
-    const lookbackStart = new Date(
-      now.getTime() - LOOKBACK_HOURS * 60 * 60 * 1000,
-    );
-
-    // Timesheets API only accepts date-level (YYYY-MM-DD) filters, so fetch
-    // the whole day(s) covering the lookback window and filter precisely in code.
-    const timesheets = await getTimesheets({
-      storeId,
-      from: toDateOnly(lookbackStart),
-      to: toDateOnly(now),
-    });
-
-    // Build the list of candidate shift events (clock_in / clock_out) inside
-    // the lookback window.
-    type Candidate = {
-      shiftKey: string;
-      employeeId: string;
-      eventType: "clock_in" | "clock_out";
-      capturedAt: string;
-    };
-    const candidates: Candidate[] = [];
-
-    for (const t of timesheets) {
-      if (t.clockInTime) {
-        const time = new Date(t.clockInTime).getTime();
-        if (time >= lookbackStart.getTime() && time <= now.getTime()) {
-          candidates.push({
-            shiftKey: `${t.employeeId}_in_${t.clockInTime}`,
-            employeeId: t.employeeId,
-            eventType: "clock_in",
-            capturedAt: t.clockInTime,
-          });
-        }
-      }
-      if (t.clockOutTime) {
-        const time = new Date(t.clockOutTime).getTime();
-        if (time >= lookbackStart.getTime() && time <= now.getTime()) {
-          candidates.push({
-            shiftKey: `${t.employeeId}_out_${t.clockOutTime}`,
-            employeeId: t.employeeId,
-            eventType: "clock_out",
-            capturedAt: t.clockOutTime,
-          });
-        }
-      }
-    }
-
-    if (candidates.length === 0) {
-      return NextResponse.json({
-        processed: 0,
-        message: "No new shift events",
-      });
-    }
-
-    // Filter out already-processed events.
-    const newCandidates: Candidate[] = [];
-    for (const c of candidates) {
-      const existing = await sql`
-        SELECT 1 FROM processed_shift_events WHERE shift_key = ${c.shiftKey}
-      `;
-      if (existing.length === 0) newCandidates.push(c);
-    }
-
-    if (newCandidates.length === 0) {
-      return NextResponse.json({
-        processed: 0,
-        message: "All events already processed",
-      });
-    }
+    const today = toDateOnly(now);
 
     // Fetch current inventory + product list ONCE for this run (respects
-    // StoreHub's 3 req/sec rate limit) and reuse across all new events.
+    // StoreHub's 3 req/sec rate limit).
     const [inventory, products] = await Promise.all([
       getInventory(storeId),
       getProducts({ limit: 500 }),
@@ -143,45 +65,37 @@ export async function GET(request: NextRequest) {
     const productIdToSku = new Map(products.map((p) => [p.id, p.sku]));
 
     let snapshotsInserted = 0;
+    const todaySnapshots = new Map<string, number>();
 
-    for (const candidate of newCandidates) {
-      for (const item of inventory) {
-        const sku = productIdToSku.get(item.productId);
-        if (!sku) continue;
+    for (const item of inventory) {
+      const sku = productIdToSku.get(item.productId);
+      if (!sku) continue;
 
-        try {
-          await sql`
-            INSERT INTO stock_snapshots (sku, product_id, store_id, quantity, event_type, employee_id, shift_key, captured_at)
-            VALUES (${sku}, ${item.productId}, ${storeId}, ${item.quantityOnHand}, ${candidate.eventType}, ${candidate.employeeId}, ${candidate.shiftKey}, ${candidate.capturedAt})
-            ON CONFLICT (sku, shift_key) DO NOTHING
-          `;
-          snapshotsInserted += 1;
-        } catch (err) {
-          console.error(
-            `[capture-snapshots] failed to insert snapshot for sku=${sku}`,
-            err,
-          );
-        }
+      todaySnapshots.set(sku, item.quantityOnHand);
+
+      try {
+        const result = await sql`
+          INSERT INTO stock_snapshots (sku, product_id, store_id, quantity, event_type, shift_key, captured_at)
+          VALUES (${sku}, ${item.productId}, ${storeId}, ${item.quantityOnHand}, 'daily', ${today}, ${now.toISOString()})
+          ON CONFLICT (sku, shift_key) DO NOTHING
+          RETURNING id
+        `;
+        if (result.length > 0) snapshotsInserted += 1;
+      } catch (err) {
+        console.error(
+          `[capture-snapshots] failed to insert snapshot for sku=${sku}`,
+          err,
+        );
       }
-
-      await sql`
-        INSERT INTO processed_shift_events (shift_key, employee_id, event_type)
-        VALUES (${candidate.shiftKey}, ${candidate.employeeId}, ${candidate.eventType})
-        ON CONFLICT (shift_key) DO NOTHING
-      `;
     }
 
-    // --- Stocking event detection ---
-    // For every shift whose clock-out we just captured (and that has a
-    // matching clock-in time on the same timesheet record), compare the
-    // actual clock-out stock against what sales alone would predict.
-    const detectedEvents = await detectStockingEvents({
-      newCandidates,
-      timesheets,
+    const detectedEvents = await detectRestocking({
+      today,
+      todaySnapshots,
     });
 
     return NextResponse.json({
-      processed: newCandidates.length,
+      date: today,
       snapshotsInserted,
       stockingEventsDetected: detectedEvents,
     });
@@ -194,100 +108,93 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function detectStockingEvents(params: {
-  newCandidates: {
-    shiftKey: string;
-    employeeId: string;
-    eventType: "clock_in" | "clock_out";
-    capturedAt: string;
-  }[];
-  timesheets: Timesheet[];
+/**
+ * Compares today's snapshot against the most recent PRIOR snapshot for each
+ * SKU. If stock rose by more than sales during that gap would explain, the
+ * surplus is recorded as an auto-detected restock event.
+ */
+async function detectRestocking(params: {
+  today: string;
+  todaySnapshots: Map<string, number>;
 }): Promise<number> {
-  const { newCandidates, timesheets } = params;
+  const { today, todaySnapshots } = params;
 
-  // Only look at shifts whose clock-OUT was newly captured this run — that's
-  // the moment we have a complete clock-in→clock-out window to evaluate.
-  const newClockOuts = newCandidates.filter((c) => c.eventType === "clock_out");
-  if (newClockOuts.length === 0) return 0;
+  if (todaySnapshots.size === 0) return 0;
+
+  // Most recent snapshot per SKU strictly before today.
+  const priorRows = await sql`
+    SELECT DISTINCT ON (sku) sku, quantity, captured_at
+    FROM stock_snapshots
+    WHERE shift_key < ${today}
+    ORDER BY sku, captured_at DESC
+  `;
+
+  if (priorRows.length === 0) return 0; // nothing to compare against yet
+
+  const priorBySku = new Map<string, { quantity: number; capturedAt: string }>(
+    priorRows.map((r) => [
+      r.sku as string,
+      { quantity: Number(r.quantity), capturedAt: r.captured_at as string },
+    ]),
+  );
+
+  // Fetch sales since the earliest prior snapshot once, then bucket per SKU.
+  const earliestPrior = priorRows.reduce((min, r) => {
+    const t = new Date(r.captured_at as string).getTime();
+    return t < min ? t : min;
+  }, Infinity);
+
+  const soldSincePrior = new Map<string, number>();
+  try {
+    const transactions = await getTransactions({
+      startDate: new Date(earliestPrior).toISOString(),
+      endDate: new Date().toISOString(),
+      status: "completed",
+    });
+    for (const tx of transactions) {
+      for (const item of tx.items) {
+        soldSincePrior.set(
+          item.sku,
+          (soldSincePrior.get(item.sku) || 0) + (item.quantity || 0),
+        );
+      }
+    }
+  } catch (err) {
+    console.error(
+      "[capture-snapshots] failed to fetch transactions for restock detection:",
+      err,
+    );
+    return 0; // can't reliably detect without sales data
+  }
 
   let detectedCount = 0;
 
-  for (const clockOutCandidate of newClockOuts) {
-    const shift = timesheets.find(
-      (t) =>
-        t.employeeId === clockOutCandidate.employeeId &&
-        t.clockOutTime === clockOutCandidate.capturedAt,
-    );
-    if (!shift || !shift.clockInTime) continue; // no matching clock-in on record
+  for (const [sku, todayQty] of todaySnapshots.entries()) {
+    const prior = priorBySku.get(sku);
+    if (!prior) continue;
 
-    const clockInShiftKey = `${shift.employeeId}_in_${shift.clockInTime}`;
-    const clockOutShiftKey = `${shift.employeeId}_out_${shift.clockOutTime}`;
+    const sold = soldSincePrior.get(sku) || 0;
+    const expectedQty = prior.quantity - sold;
+    const surplus = todayQty - expectedQty;
 
-    const [clockInRows, clockOutRows] = await Promise.all([
-      sql`SELECT sku, quantity FROM stock_snapshots WHERE shift_key = ${clockInShiftKey}`,
-      sql`SELECT sku, quantity FROM stock_snapshots WHERE shift_key = ${clockOutShiftKey}`,
-    ]);
-
-    if (clockInRows.length === 0 || clockOutRows.length === 0) continue;
-
-    const qtyAtClockIn = new Map<string, number>(
-      clockInRows.map((r) => [r.sku as string, Number(r.quantity)]),
-    );
-    const qtyAtClockOut = new Map<string, number>(
-      clockOutRows.map((r) => [r.sku as string, Number(r.quantity)]),
-    );
-
-    // Units sold per SKU across ALL employees during this shift window (the
-    // whole store's stock moves regardless of who rang up the sale).
-    let soldDuringShift = new Map<string, number>();
-    try {
-      const transactions = await getTransactions({
-        startDate: shift.clockInTime,
-        endDate: shift.clockOutTime,
-        status: "completed",
-      });
-      soldDuringShift = new Map();
-      for (const tx of transactions) {
-        for (const item of tx.items) {
-          soldDuringShift.set(
-            item.sku,
-            (soldDuringShift.get(item.sku) || 0) + (item.quantity || 0),
-          );
-        }
-      }
-    } catch (err) {
-      console.error(
-        `[capture-snapshots] failed to fetch transactions for shift ${clockOutShiftKey}:`,
-        err,
-      );
-      continue; // can't reliably detect without sales data for this window
-    }
-
-    for (const [sku, qtyIn] of qtyAtClockIn.entries()) {
-      const qtyOut = qtyAtClockOut.get(sku);
-      if (qtyOut === undefined) continue;
-
-      const sold = soldDuringShift.get(sku) || 0;
-      const expectedQtyOut = qtyIn - sold;
-      const surplus = qtyOut - expectedQtyOut;
-
-      if (surplus >= STOCKING_EVENT_THRESHOLD) {
-        try {
-          await sql`
-            INSERT INTO restock_events (sku, quantity, source, reference_id, occurred_at, notes)
-            VALUES (${sku}, ${surplus}, 'detected', ${clockOutShiftKey}, ${shift.clockOutTime}, ${`Auto-detected: stock rose more than sales alone would explain during shift ${shift.clockInTime} → ${shift.clockOutTime}`})
-            ON CONFLICT (sku, source, reference_id) DO NOTHING
-          `;
-          detectedCount += 1;
-        } catch (err) {
-          console.error(
-            `[capture-snapshots] failed to insert detected restock for sku=${sku}`,
-            err,
-          );
-        }
+    if (surplus >= STOCKING_EVENT_THRESHOLD) {
+      try {
+        const result = await sql`
+          INSERT INTO restock_events (sku, quantity, source, reference_id, occurred_at, notes)
+          VALUES (${sku}, ${surplus}, 'detected', ${today}, ${new Date().toISOString()}, ${`Auto-detected: stock rose more than sales alone would explain since ${prior.capturedAt}`})
+          ON CONFLICT (sku, source, reference_id) DO NOTHING
+          RETURNING id
+        `;
+        if (result.length > 0) detectedCount += 1;
+      } catch (err) {
+        console.error(
+          `[capture-snapshots] failed to insert detected restock for sku=${sku}`,
+          err,
+        );
       }
     }
   }
 
   return detectedCount;
 }
+

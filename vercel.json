@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/capture-snapshots",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 12 * * *"
     }
   ]
 }

@@ -2,9 +2,10 @@
  * Restocking advisory engine.
  *
  * Data sources (in priority order):
- *  1. `stock_snapshots` — quantity-on-hand captured automatically at every
- *     staff clock-in / clock-out (see app/api/cron/capture-snapshots).
- *     This gives a real, granular depletion curve per SKU.
+ *  1. `stock_snapshots` — quantity-on-hand captured automatically once a
+ *     day at 8pm (see app/api/cron/capture-snapshots), regardless of staff
+ *     clock-in/clock-out times. This gives a real, day-by-day depletion
+ *     curve per SKU.
  *  2. `restock_events` — known stock-ups (purchase orders, stock takes,
  *     stock returns), used to separate "sold" depletion from "restocked"
  *     jumps when reading the snapshot curve, and to estimate typical
@@ -30,7 +31,7 @@ export interface RestockAdvice {
 
 interface StockSnapshotRow {
   quantity: string; // numeric comes back as string from pg
-  event_type: "clock_in" | "clock_out" | "manual";
+  event_type: "clock_in" | "clock_out" | "manual" | "daily";
   captured_at: string;
 }
 
