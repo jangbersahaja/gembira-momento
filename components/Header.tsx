@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -100,11 +101,15 @@ export default function Header() {
         {/* Main Navigation */}
         <div className="flex items-center justify-between py-4">
           {/* Logo */}
-          <Link href="/" className="flex flex-col items-start gap-0 shrink-0">
-            <div className="text-2xl font-bold text-slate-900">Gembira</div>
-            <div className="text-xs font-semibold text-amber-700 tracking-wider">
-              MOMENTO
-            </div>
+          <Link href="/" className="flex items-center shrink-0">
+            <Image
+              src="/GM Logo.png"
+              alt="Gembira Momento"
+              width={160}
+              height={48}
+              priority
+              className="h-10 w-auto object-contain"
+            />
           </Link>
 
           {/* Center Navigation Links - Desktop Only */}

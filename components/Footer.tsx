@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 export default function Footer() {
@@ -9,10 +10,13 @@ export default function Footer() {
           {/* Brand Section */}
           <div className="space-y-6">
             <div>
-              <div className="text-2xl font-bold">Gembira</div>
-              <div className="text-xs font-semibold text-amber-400 tracking-wider">
-                MOMENTO
-              </div>
+              <Image
+                src="/GM Logo.png"
+                alt="Gembira Momento"
+                width={160}
+                height={48}
+                className="h-10 w-auto object-contain brightness-0 invert"
+              />
             </div>
             <p className="text-sm text-gray-400 leading-relaxed">
               Your Malaysian souvenir boutique in the heart of Kuala Lumpur.
