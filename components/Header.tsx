@@ -83,14 +83,14 @@ export default function Header() {
                 href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
                 target="_blank"
                 rel="noreferrer"
-                className="hover:text-amber-700 transition-colors"
+                className="hover:text-amber-600 transition-colors"
               >
                 Get Directions
               </a>
               <span className="text-gray-300">|</span>
               <a
                 href="mailto:gembiraceo@gmail.com"
-                className="hover:text-amber-700 transition-colors"
+                className="hover:text-amber-600 transition-colors"
               >
                 Email
               </a>
@@ -120,8 +120,8 @@ export default function Header() {
                 href={link.href}
                 className={`transition-colors ${
                   pathname === link.href
-                    ? "text-amber-700 font-semibold"
-                    : "text-gray-700 hover:text-amber-700"
+                    ? "text-amber-600 font-semibold"
+                    : "text-gray-700 hover:text-amber-600"
                 }`}
               >
                 {link.label}
@@ -143,7 +143,7 @@ export default function Header() {
                 href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
                 target="_blank"
                 rel="noreferrer"
-                className="px-6 py-2.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-full transition-colors duration-200 text-sm whitespace-nowrap"
+                className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-full shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 text-sm whitespace-nowrap"
               >
                 Plan Your Visit
               </a>
@@ -164,7 +164,7 @@ export default function Header() {
                 href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
                 target="_blank"
                 rel="noreferrer"
-                className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-full transition-colors duration-200 text-xs whitespace-nowrap"
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-full shadow-sm transition-all duration-200 text-xs whitespace-nowrap"
               >
                 Visit
               </a>
@@ -191,8 +191,8 @@ export default function Header() {
                   onClick={() => setMobileMenuOpen(false)}
                   className={`block px-4 py-2.5 text-sm font-medium transition-colors rounded ${
                     pathname === link.href
-                      ? "bg-amber-50 text-amber-700 font-semibold"
-                      : "text-gray-700 hover:bg-gray-50 hover:text-amber-700"
+                      ? "bg-amber-50 text-amber-600 font-semibold"
+                      : "text-gray-700 hover:bg-gray-50 hover:text-amber-600"
                   }`}
                 >
                   {link.label}

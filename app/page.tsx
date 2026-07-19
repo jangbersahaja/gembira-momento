@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 
 export default function Home() {
@@ -60,65 +61,83 @@ export default function Home() {
   return (
     <div className="flex flex-col bg-white">
       {/* ========== Hero Section ========== */}
-      <section className="relative w-full h-screen flex items-center justify-center overflow-hidden bg-linear-to-b from-amber-50 via-white to-white">
-        {/* Background image placeholder with overlay */}
-        <div
-          className="absolute inset-0 bg-cover bg-center opacity-20"
-          style={{
-            backgroundImage:
-              "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 1200 800%22%3E%3Crect fill=%22%238C6239%22 width=%221200%22 height=%22800%22/%3E%3C/svg%3E)'",
-          }}
-        ></div>
+      <section className="relative w-full h-screen min-h-160 flex items-center overflow-hidden">
+        {/* Background image */}
+        <Image
+          src="/GM Front Image.webp"
+          alt="Gembira Momento storefront"
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover"
+        />
+        {/* Dark gradient overlay for contrast + subtle amber warmth */}
+        <div className="absolute inset-0 bg-linear-to-r from-slate-950/90 via-slate-950/60 to-slate-950/20"></div>
+        <div className="absolute inset-0 bg-linear-to-t from-slate-950/80 via-transparent to-transparent"></div>
 
-        <div className="relative z-10 max-w-4xl mx-auto px-6 text-center space-y-8">
-          <h1 className="text-6xl md:text-7xl font-bold text-slate-900 leading-tight">
-            Take a Happy Moment Home.
-          </h1>
+        <div className="relative z-10 w-full max-w-7xl mx-auto px-6">
+          <div className="max-w-2xl space-y-8">
+            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-400/10 border border-amber-300/30 text-amber-300 text-xs font-semibold tracking-wide uppercase backdrop-blur-sm">
+              ✦ Rubber Park @ KLCC, Kuala Lumpur
+            </span>
 
-          <p className="text-xl md:text-2xl text-gray-700 max-w-2xl mx-auto leading-relaxed">
-            Your Premium One-Stop Malaysian Souvenir Boutique, right in the
-            heart of Kuala Lumpur.
-          </p>
+            <h1 className="text-5xl md:text-7xl font-bold text-white leading-tight text-balance">
+              Take a Happy Moment Home.
+            </h1>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center pt-8">
-            <Link href="#curation">
-              <button className="px-8 py-4 bg-amber-700 hover:bg-amber-800 text-white rounded-full font-semibold text-lg transition-colors duration-200">
-                Explore Our Curation
-              </button>
-            </Link>
-            <a
-              href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <button className="px-8 py-4 border-2 border-amber-700 text-amber-700 hover:bg-amber-50 rounded-full font-semibold text-lg transition-colors duration-200">
-                Get Directions (Rubber Park)
-              </button>
-            </a>
+            <p className="text-lg md:text-2xl text-gray-200 leading-relaxed">
+              Your Premium One-Stop Malaysian Souvenir Boutique, right in the
+              heart of Kuala Lumpur.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-4 pt-4">
+              <Link href="#curation">
+                <button className="w-full sm:w-auto px-8 py-4 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-full font-semibold text-lg shadow-lg shadow-amber-900/30 transition-all duration-200 hover:shadow-xl hover:-translate-y-0.5">
+                  Explore Our Curation
+                </button>
+              </Link>
+              <a
+                href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <button className="w-full sm:w-auto px-8 py-4 border-2 border-white/40 text-white hover:bg-white/10 rounded-full font-semibold text-lg backdrop-blur-sm transition-all duration-200">
+                  Get Directions
+                </button>
+              </a>
+            </div>
           </div>
+        </div>
+
+        {/* Scroll cue */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/70 text-xs tracking-widest uppercase animate-bounce">
+          ↓ Scroll
         </div>
       </section>
 
       {/* ========== Multilingual Welcome Gateway ========== */}
-      <section className="py-32 px-6 bg-white">
+      <section className="py-28 px-6 bg-white">
         <div className="max-w-4xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-12 text-center">
+          <div className="flex flex-wrap justify-center gap-x-8 gap-y-4 mb-14 text-center">
             {greetings.map((greeting, idx) => (
               <div
                 key={idx}
-                className={`text-sm font-light ${greeting.color} opacity-40 hover:opacity-100 transition-opacity`}
+                className={`text-base font-medium ${greeting.color} opacity-50 hover:opacity-100 transition-opacity`}
               >
                 {greeting.text}
               </div>
             ))}
           </div>
 
-          <div className="border-t border-b border-gray-200 py-16 space-y-6">
-            <p className="text-xl text-gray-900 font-semibold leading-relaxed">
+          <div className="relative rounded-2xl bg-amber-50/60 border border-amber-100 py-16 px-8 md:px-16 space-y-6 text-center">
+            <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-5xl">
+              ❝
+            </span>
+            <p className="text-xl md:text-2xl text-slate-900 font-semibold leading-relaxed">
               Step out of the bustling streets of KL and into a sanctuary
               curated for the global traveler.
             </p>
-            <p className="text-lg text-gray-700 leading-relaxed">
+            <p className="text-lg text-gray-600 leading-relaxed max-w-2xl mx-auto">
               Traditional souvenir stalls can feel loud and chaotic. At Gembira
               Momento, we invite you to browse comfortably in a contemporary,
               gallery-inspired space where Malaysian heritage meets modern
@@ -129,31 +148,36 @@ export default function Home() {
       </section>
 
       {/* ========== The Curated Pillars (Product Grid) ========== */}
-      <section id="curation" className="py-32 px-6 bg-amber-50">
+      <section id="curation" className="py-28 px-6 bg-amber-50">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-20">
-            <h2 className="text-5xl font-bold text-slate-900 mb-6">
-              Our Curation
+          <div className="text-center mb-16">
+            <span className="text-amber-700 font-semibold text-sm uppercase tracking-widest">
+              The Curation
+            </span>
+            <h2 className="text-4xl md:text-5xl font-bold text-slate-900 mt-3 mb-6">
+              Crafted for Every Traveler
             </h2>
-            <p className="text-lg text-gray-700 max-w-2xl mx-auto">
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
               Thoughtfully selected collections for every traveler.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {pillars.map((pillar, idx) => (
               <div
                 key={idx}
-                className="group cursor-pointer transform transition-all duration-300 hover:shadow-lg p-8 bg-white rounded-lg hover:bg-amber-50"
+                className="group cursor-pointer transition-all duration-300 hover:-translate-y-1 p-8 bg-white rounded-2xl shadow-sm hover:shadow-xl border border-amber-100"
               >
-                <div className="text-6xl mb-6">{pillar.icon}</div>
-                <div className="text-sm font-semibold text-amber-700 mb-2">
+                <div className="w-16 h-16 flex items-center justify-center rounded-xl bg-amber-100 text-4xl mb-6 group-hover:bg-amber-200 transition-colors">
+                  {pillar.icon}
+                </div>
+                <div className="text-xs font-bold text-amber-700 mb-2 tracking-widest">
                   {pillar.number}
                 </div>
-                <h3 className="text-2xl font-bold text-slate-900 mb-4">
+                <h3 className="text-xl font-bold text-slate-900 mb-3">
                   {pillar.title}
                 </h3>
-                <p className="text-gray-700 leading-relaxed">
+                <p className="text-gray-600 leading-relaxed">
                   {pillar.description}
                 </p>
               </div>
@@ -163,13 +187,16 @@ export default function Home() {
       </section>
 
       {/* ========== Social Proof / Bestsellers ========== */}
-      <section className="py-32 px-6 bg-white">
+      <section className="py-28 px-6 bg-white">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-20">
-            <h2 className="text-5xl font-bold text-slate-900 mb-6">
+          <div className="text-center mb-16">
+            <span className="text-amber-700 font-semibold text-sm uppercase tracking-widest">
+              Fan Favorites
+            </span>
+            <h2 className="text-4xl md:text-5xl font-bold text-slate-900 mt-3 mb-6">
               What Travelers Are Loving Right Now
             </h2>
-            <p className="text-lg text-gray-700">
+            <p className="text-lg text-gray-600">
               Discover our current bestsellers and customer favorites.
             </p>
           </div>
@@ -178,15 +205,15 @@ export default function Home() {
             {bestsellers.map((item, idx) => (
               <div
                 key={idx}
-                className="border-2 border-gray-200 rounded-lg p-8 hover:border-amber-700 transition-colors duration-200"
+                className="relative rounded-2xl p-8 bg-linear-to-b from-white to-amber-50/50 border border-gray-200 hover:border-amber-400 hover:shadow-lg transition-all duration-200"
               >
-                <div className="inline-block px-4 py-2 bg-amber-100 text-amber-700 text-xs font-bold rounded-full mb-6">
+                <div className="inline-block px-4 py-1.5 bg-amber-700 text-white text-xs font-bold rounded-full mb-6">
                   {item.tag}
                 </div>
-                <h3 className="text-xl font-bold text-slate-900 mb-4">
+                <h3 className="text-xl font-bold text-slate-900 mb-3">
                   {item.name}
                 </h3>
-                <p className="text-gray-700 leading-relaxed">
+                <p className="text-gray-600 leading-relaxed">
                   {item.description}
                 </p>
               </div>
@@ -196,15 +223,15 @@ export default function Home() {
       </section>
 
       {/* ========== Gembira Corporate Bridge ========== */}
-      <section className="py-32 px-6 bg-slate-900">
+      <section className="py-28 px-6 bg-slate-950">
         <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
             <div className="space-y-8">
               <div>
-                <p className="text-amber-700 font-semibold text-lg mb-2">
+                <p className="text-amber-400 font-semibold text-sm uppercase tracking-widest mb-3">
                   The B2B Bridge
                 </p>
-                <h2 className="text-5xl font-bold text-white">
+                <h2 className="text-4xl md:text-5xl font-bold text-white leading-tight">
                   Elevate Your Corporate Gifting
                 </h2>
               </div>
@@ -224,32 +251,40 @@ export default function Home() {
 
               <div>
                 <Link href="/contact">
-                  <button className="px-8 py-4 bg-amber-700 hover:bg-amber-800 text-white rounded-full font-semibold text-lg transition-colors duration-200">
+                  <button className="px-8 py-4 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-full font-semibold text-lg shadow-lg shadow-amber-900/30 transition-all duration-200 hover:-translate-y-0.5">
                     Download Digital Premium Catalog
                   </button>
                 </Link>
               </div>
             </div>
 
-            <div className="bg-linear-to-br from-amber-900 to-amber-700 rounded-lg p-12 text-white">
-              <p className="text-sm font-semibold uppercase tracking-wide mb-4">
+            <div className="bg-linear-to-br from-amber-800 to-amber-600 rounded-2xl p-10 md:p-12 text-white shadow-2xl">
+              <p className="text-sm font-semibold uppercase tracking-widest mb-6 text-amber-100">
                 Corporate Packages Include
               </p>
-              <ul className="space-y-4 text-gray-100">
+              <ul className="space-y-5 text-gray-50">
                 <li className="flex items-start gap-3">
-                  <span className="text-amber-300">✓</span>
+                  <span className="flex-none w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm">
+                    ✓
+                  </span>
                   <span>Signature Malaysian delicacies & artisanal goods</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <span className="text-amber-300">✓</span>
+                  <span className="flex-none w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm">
+                    ✓
+                  </span>
                   <span>Custom artwork & personalization options</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <span className="text-amber-300">✓</span>
+                  <span className="flex-none w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm">
+                    ✓
+                  </span>
                   <span>Elegant wooden gift boxes with branding</span>
                 </li>
                 <li className="flex items-start gap-3">
-                  <span className="text-amber-300">✓</span>
+                  <span className="flex-none w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm">
+                    ✓
+                  </span>
                   <span>Volume discounts for bulk orders</span>
                 </li>
               </ul>
@@ -259,42 +294,57 @@ export default function Home() {
       </section>
 
       {/* ========== Info & CTA Section ========== */}
-      <section className="py-20 px-6 bg-white">
+      <section className="py-28 px-6 bg-amber-50">
         <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
             <div className="space-y-8">
-              <h2 className="text-4xl font-bold text-slate-900">
-                Plan Your Visit
-              </h2>
+              <div>
+                <span className="text-amber-700 font-semibold text-sm uppercase tracking-widest">
+                  Visit Us
+                </span>
+                <h2 className="text-4xl md:text-5xl font-bold text-slate-900 mt-3">
+                  Plan Your Visit
+                </h2>
+              </div>
 
-              <div className="space-y-6">
-                <div>
-                  <p className="text-sm font-semibold text-amber-700 uppercase tracking-wide">
-                    Hours of Operation
-                  </p>
-                  <p className="text-xl text-gray-900 mt-2">
-                    Weekdays: 1:00 PM – 11:00 PM
-                    <br />
-                    Weekends: 11:00 AM – 11:00 PM
-                  </p>
+              <div className="space-y-6 bg-white rounded-2xl p-8 shadow-sm border border-amber-100">
+                <div className="flex gap-4">
+                  <span className="flex-none w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-lg">
+                    ⏰
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-amber-700 uppercase tracking-wide">
+                      Hours of Operation
+                    </p>
+                    <p className="text-lg text-gray-900 mt-1">
+                      Weekdays: 1:00 PM – 11:00 PM
+                      <br />
+                      Weekends: 11:00 AM – 11:00 PM
+                    </p>
+                  </div>
                 </div>
 
-                <div>
-                  <p className="text-sm font-semibold text-amber-700 uppercase tracking-wide">
-                    Location
-                  </p>
-                  <p className="text-xl text-gray-900 mt-2">
-                    Rubber Park @ KLCC
-                  </p>
-                  <p className="text-lg text-gray-600 mt-1">
-                    No. 3, 148, Jln Ampang, Kampung Baru, 50450 Kuala Lumpur
-                  </p>
+                <div className="flex gap-4">
+                  <span className="flex-none w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-lg">
+                    📍
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-amber-700 uppercase tracking-wide">
+                      Location
+                    </p>
+                    <p className="text-lg text-gray-900 mt-1 font-semibold">
+                      Rubber Park @ KLCC
+                    </p>
+                    <p className="text-base text-gray-600 mt-0.5">
+                      No. 3, 148, Jln Ampang, Kampung Baru, 50450 Kuala Lumpur
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex gap-4">
+              <div className="flex flex-col sm:flex-row gap-4">
                 <Link href="/contact">
-                  <button className="px-8 py-4 bg-amber-700 hover:bg-amber-800 text-white rounded-full font-semibold text-lg transition-colors duration-200">
+                  <button className="w-full sm:w-auto px-8 py-4 bg-amber-700 hover:bg-amber-800 text-white rounded-full font-semibold text-lg shadow-md transition-all duration-200 hover:-translate-y-0.5">
                     Get in Touch
                   </button>
                 </Link>
@@ -303,14 +353,14 @@ export default function Home() {
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <button className="px-8 py-4 border-2 border-amber-700 text-amber-700 hover:bg-amber-50 rounded-full font-semibold text-lg transition-colors duration-200">
+                  <button className="w-full sm:w-auto px-8 py-4 border-2 border-amber-700 text-amber-700 hover:bg-amber-100 rounded-full font-semibold text-lg transition-colors duration-200">
                     Get Directions
                   </button>
                 </a>
               </div>
             </div>
 
-            <div className="w-full h-96 bg-gray-200 rounded-lg overflow-hidden">
+            <div className="w-full h-96 rounded-2xl overflow-hidden shadow-xl border-4 border-white">
               <iframe
                 src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3984.6920508831!2d101.71327!3d3.157396!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x31cc33e4b2e0e0e5%3A0x8c3c3c3c3c3c3c3c!2sSuria%20KLCC%2C%20Kuala%20Lumpur!5e0!3m2!1sen!2smy!4v1234567890"
                 width="100%"

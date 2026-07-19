@@ -3,7 +3,7 @@ import Link from "next/link";
 
 export default function Footer() {
   return (
-    <footer className="w-full bg-slate-900 text-white">
+    <footer className="w-full bg-slate-950 text-white">
       {/* Main Footer Content */}
       <div className="mx-auto max-w-7xl px-6 py-20">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
@@ -27,7 +27,7 @@ export default function Footer() {
                 href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
                 target="_blank"
                 rel="noreferrer"
-                className="w-10 h-10 rounded-full bg-amber-700 hover:bg-amber-600 flex items-center justify-center transition-colors text-lg"
+                className="w-10 h-10 rounded-full bg-white/10 hover:bg-amber-500 hover:text-slate-950 flex items-center justify-center transition-all duration-200 text-lg"
               >
                 🌐
               </a>
@@ -35,7 +35,7 @@ export default function Footer() {
                 href="https://instagram.com"
                 target="_blank"
                 rel="noreferrer"
-                className="w-10 h-10 rounded-full bg-amber-700 hover:bg-amber-600 flex items-center justify-center transition-colors text-lg"
+                className="w-10 h-10 rounded-full bg-white/10 hover:bg-amber-500 hover:text-slate-950 flex items-center justify-center transition-all duration-200 text-lg"
               >
                 📷
               </a>
@@ -86,7 +86,7 @@ export default function Footer() {
             <h3 className="font-semibold text-lg">Store Info</h3>
             <ul className="space-y-3 text-sm text-gray-400">
               <li className="flex gap-2">
-                <span className="text-amber-400">📍</span>
+                <span className="text-amber-500">📍</span>
                 <span>
                   Rubber Park @ KLCC
                   <br />
@@ -96,7 +96,7 @@ export default function Footer() {
                 </span>
               </li>
               <li className="flex gap-2">
-                <span className="text-amber-400">⏰</span>
+                <span className="text-amber-500">⏰</span>
                 <span>
                   Weekdays: 1:00 PM – 11:00 PM
                   <br />
