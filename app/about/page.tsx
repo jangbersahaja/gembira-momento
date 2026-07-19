@@ -190,7 +190,7 @@ export default function AboutPage() {
         </h3>
         <div className="flex flex-col md:flex-row gap-4 justify-center">
           <a
-            href="https://share.google/FuUQcoGAe3SJJBGbm"
+            href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
             target="_blank"
             rel="noreferrer"
             className="px-8 py-3 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-lg transition-colors"
@@ -198,7 +198,7 @@ export default function AboutPage() {
             Get Directions
           </a>
           <a
-            href="mailto:hello@gembiramomento.my"
+            href="mailto:gembiraceo@gmail.com"
             className="px-8 py-3 border-2 border-amber-700 text-amber-700 hover:bg-amber-50 font-semibold rounded-lg transition-colors"
           >
             Contact Us

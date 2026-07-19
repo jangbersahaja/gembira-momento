@@ -1152,7 +1152,10 @@ export default function SalesDashboardClient() {
   return (
     <div className="w-full bg-gray-50 min-h-screen">
       {/* Compact Header */}
-      <div className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
+      <div
+        className="sticky z-40 bg-white border-b border-gray-200 shadow-sm"
+        style={{ top: "var(--app-header-height, 64px)" }}
+      >
         <div className="mx-auto max-w-7xl px-4 md:px-6 py-3 md:py-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-6">
             <div>

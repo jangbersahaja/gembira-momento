@@ -14,6 +14,7 @@
  *     used only while a SKU has fewer than 2 snapshots on record yet.
  */
 import { sql } from "@/lib/db";
+import { getAliasMultiplier, getLegacyAliasesFor } from "@/lib/productAliases";
 
 export type Urgency = "critical" | "high" | "medium" | "low" | "none";
 
@@ -24,6 +25,14 @@ export interface RestockAdvice {
   daysUntilStockout?: number;
   reason: string;
   dailySalesVelocity: number;
+  /** Stock level at which a reorder should be triggered. */
+  reorderPoint: number;
+  /** Recommended stock level to reach after restocking. */
+  targetStock: number;
+  /** Estimated restock lead time (days) used to compute the above. */
+  leadTimeDays: number;
+  /** Extra days of cover the target stock provides beyond lead time + buffer. */
+  coverageDays: number;
   dataSource: "snapshots" | "estimated";
   snapshotCount: number;
   lastSnapshotAt?: string;
@@ -39,6 +48,14 @@ interface RestockEventRow {
   quantity: string;
   occurred_at: string;
 }
+
+// Tunable defaults — used when there isn't enough history to estimate them
+// per-SKU. Kept as named constants so they're easy to adjust in one place.
+const DEFAULT_LEAD_TIME_DAYS = 7;
+const MIN_LEAD_TIME_DAYS = 2;
+const MAX_LEAD_TIME_DAYS = 30;
+const SAFETY_BUFFER_DAYS = 3;
+const COVERAGE_DAYS = 14;
 
 /**
  * Compute a daily "units sold per day" velocity from a chronological list
@@ -84,37 +101,208 @@ function computeVelocityFromSnapshots(
   return { velocity: totalConsumed / totalDays, consumedDays: totalDays };
 }
 
+/**
+ * Estimate this SKU's typical restock lead time from the average gap
+ * between historical restock events (purchase orders / stock takes /
+ * detected restocks). Falls back to DEFAULT_LEAD_TIME_DAYS when there
+ * aren't at least 2 restock events to measure a gap from, and clamps the
+ * result to a sane range so one weird outlier doesn't skew everything.
+ */
+function estimateLeadTimeDays(restockEvents: RestockEventRow[]): number {
+  const restockTimestamps = restockEvents
+    .filter((r) => Number(r.quantity) > 0)
+    .map((r) => new Date(r.occurred_at).getTime())
+    .sort((a, b) => a - b);
+
+  if (restockTimestamps.length < 2) return DEFAULT_LEAD_TIME_DAYS;
+
+  const gapsDays: number[] = [];
+  for (let i = 1; i < restockTimestamps.length; i++) {
+    const gap =
+      (restockTimestamps[i] - restockTimestamps[i - 1]) / (1000 * 60 * 60 * 24);
+    if (gap > 0) gapsDays.push(gap);
+  }
+  if (gapsDays.length === 0) return DEFAULT_LEAD_TIME_DAYS;
+
+  const avgGap = gapsDays.reduce((sum, g) => sum + g, 0) / gapsDays.length;
+  return Math.min(MAX_LEAD_TIME_DAYS, Math.max(MIN_LEAD_TIME_DAYS, avgGap));
+}
+
 export async function getRestockAdvice(params: {
   sku: string;
   currentStock: number;
-  warningLevel: number;
-  idealLevel: number;
   fallbackDailyVelocity: number;
 }): Promise<RestockAdvice> {
-  const { sku, currentStock, warningLevel, idealLevel, fallbackDailyVelocity } =
-    params;
+  const { sku, currentStock, fallbackDailyVelocity } = params;
+
+  // Fold in any legacy SKUs that have been superseded by this one (e.g. a
+  // discontinued bundle SKU now sold under a different piece-count SKU —
+  // see lib/productAliases.ts) so their historical stock/restock signal
+  // still contributes to this product's velocity, converted to this SKU's
+  // unit size.
+  const legacyAliases = getLegacyAliasesFor(sku);
+  const skusToFetch = [sku, ...legacyAliases.map((a) => a.legacySku)];
 
   let snapshots: StockSnapshotRow[] = [];
   let restockEvents: RestockEventRow[] = [];
 
   try {
-    snapshots = (await sql`
-      SELECT quantity, event_type, captured_at
+    const rawSnapshots = (await sql`
+      SELECT sku, quantity, event_type, captured_at
       FROM stock_snapshots
-      WHERE sku = ${sku}
+      WHERE sku = ANY(${skusToFetch})
       ORDER BY captured_at ASC
-    `) as unknown as StockSnapshotRow[];
-
-    restockEvents = (await sql`
-      SELECT quantity, occurred_at
+    `) as unknown as (StockSnapshotRow & { sku: string })[];
+    const rawRestockEvents = (await sql`
+      SELECT sku, quantity, occurred_at
       FROM restock_events
-      WHERE sku = ${sku}
+      WHERE sku = ANY(${skusToFetch})
       ORDER BY occurred_at ASC
-    `) as unknown as RestockEventRow[];
+    `) as unknown as (RestockEventRow & { sku: string })[];
+
+    snapshots = rawSnapshots
+      .map((row) => {
+        const multiplier = getAliasMultiplier(row.sku);
+        return multiplier === 1
+          ? row
+          : { ...row, quantity: String(Number(row.quantity) * multiplier) };
+      })
+      .sort(
+        (a, b) =>
+          new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime(),
+      );
+    restockEvents = rawRestockEvents
+      .map((row) => {
+        const multiplier = getAliasMultiplier(row.sku);
+        return multiplier === 1
+          ? row
+          : { ...row, quantity: String(Number(row.quantity) * multiplier) };
+      })
+      .sort(
+        (a, b) =>
+          new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime(),
+      );
   } catch (err) {
     console.error(`[restockingLogic] DB query failed for sku=${sku}:`, err);
   }
 
+  return computeAdvice(
+    currentStock,
+    fallbackDailyVelocity,
+    snapshots,
+    restockEvents,
+  );
+}
+
+/**
+ * Compute restocking advice for MANY SKUs at once using just two DB queries
+ * total (instead of two-per-SKU) — used by the /products list page so it
+ * can show reorder point / urgency for every row without N+1 requests.
+ */
+export async function getBulkRestockAdvice(
+  items: { sku: string; currentStock: number; fallbackDailyVelocity: number }[],
+): Promise<Map<string, RestockAdvice>> {
+  const result = new Map<string, RestockAdvice>();
+  if (items.length === 0) return result;
+
+  const canonicalSkus = items.map((i) => i.sku).filter(Boolean);
+  if (canonicalSkus.length === 0) return result;
+
+  // Also pull in any legacy SKUs aliased to one of these canonical SKUs
+  // (see lib/productAliases.ts) so their history contributes here instead
+  // of being computed as if it were a separate, unrelated product.
+  const legacySkus = canonicalSkus.flatMap((sku) =>
+    getLegacyAliasesFor(sku).map((a) => a.legacySku),
+  );
+  const skus = [...canonicalSkus, ...legacySkus];
+
+  let allSnapshots: (StockSnapshotRow & { sku: string })[] = [];
+  let allRestockEvents: (RestockEventRow & { sku: string })[] = [];
+
+  try {
+    allSnapshots = (await sql`
+      SELECT sku, quantity, event_type, captured_at
+      FROM stock_snapshots
+      WHERE sku = ANY(${skus})
+      ORDER BY captured_at ASC
+    `) as unknown as (StockSnapshotRow & { sku: string })[];
+
+    allRestockEvents = (await sql`
+      SELECT sku, quantity, occurred_at
+      FROM restock_events
+      WHERE sku = ANY(${skus})
+      ORDER BY occurred_at ASC
+    `) as unknown as (RestockEventRow & { sku: string })[];
+  } catch (err) {
+    console.error("[restockingLogic] Bulk DB query failed:", err);
+  }
+
+  // Group every row under its CANONICAL sku (resolving legacy aliases and
+  // scaling quantity by the alias's unit multiplier), then merge/sort by
+  // time so a canonical SKU's velocity reflects its full merged history.
+  const snapshotsBySku = new Map<string, StockSnapshotRow[]>();
+  for (const row of allSnapshots) {
+    const multiplier = getAliasMultiplier(row.sku);
+    const canonicalSku =
+      canonicalSkus.find((s) =>
+        getLegacyAliasesFor(s).some((a) => a.legacySku === row.sku),
+      ) || row.sku;
+    const scaledRow =
+      multiplier === 1
+        ? row
+        : { ...row, quantity: String(Number(row.quantity) * multiplier) };
+    const list = snapshotsBySku.get(canonicalSku) || [];
+    list.push(scaledRow);
+    snapshotsBySku.set(canonicalSku, list);
+  }
+  for (const list of snapshotsBySku.values()) {
+    list.sort(
+      (a, b) =>
+        new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime(),
+    );
+  }
+
+  const restockEventsBySku = new Map<string, RestockEventRow[]>();
+  for (const row of allRestockEvents) {
+    const multiplier = getAliasMultiplier(row.sku);
+    const canonicalSku =
+      canonicalSkus.find((s) =>
+        getLegacyAliasesFor(s).some((a) => a.legacySku === row.sku),
+      ) || row.sku;
+    const scaledRow =
+      multiplier === 1
+        ? row
+        : { ...row, quantity: String(Number(row.quantity) * multiplier) };
+    const list = restockEventsBySku.get(canonicalSku) || [];
+    list.push(scaledRow);
+    restockEventsBySku.set(canonicalSku, list);
+  }
+  for (const list of restockEventsBySku.values()) {
+    list.sort(
+      (a, b) =>
+        new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime(),
+    );
+  }
+
+  for (const item of items) {
+    const advice = computeAdvice(
+      item.currentStock,
+      item.fallbackDailyVelocity,
+      snapshotsBySku.get(item.sku) || [],
+      restockEventsBySku.get(item.sku) || [],
+    );
+    result.set(item.sku, advice);
+  }
+
+  return result;
+}
+
+function computeAdvice(
+  currentStock: number,
+  fallbackDailyVelocity: number,
+  snapshots: StockSnapshotRow[],
+  restockEvents: RestockEventRow[],
+): RestockAdvice {
   let dailySalesVelocity: number;
   let dataSource: "snapshots" | "estimated";
 
@@ -129,39 +317,78 @@ export async function getRestockAdvice(params: {
     dataSource = "estimated";
   }
 
+  const leadTimeDays = estimateLeadTimeDays(restockEvents);
+  const reorderPoint = dailySalesVelocity * (leadTimeDays + SAFETY_BUFFER_DAYS);
+  const targetStock =
+    dailySalesVelocity * (leadTimeDays + SAFETY_BUFFER_DAYS + COVERAGE_DAYS);
+
+  const lastSnapshot = snapshots[snapshots.length - 1];
+
+  // No sales history at all — can't estimate demand, so don't pretend to.
+  if (dailySalesVelocity <= 0) {
+    const outOfStock = currentStock <= 0;
+    return {
+      shouldRestock: outOfStock,
+      quantity: 0,
+      urgency: outOfStock ? "high" : "none",
+      reason: outOfStock
+        ? "Out of stock, but no recent sales history to size a reorder — check manually"
+        : "Not enough sales history yet to estimate restocking needs",
+      dailySalesVelocity: 0,
+      reorderPoint: 0,
+      targetStock: 0,
+      leadTimeDays,
+      coverageDays: COVERAGE_DAYS,
+      dataSource,
+      snapshotCount: snapshots.length,
+      lastSnapshotAt: lastSnapshot?.captured_at,
+    };
+  }
+
+  const daysUntilStockout = Math.max(
+    0,
+    Math.floor(currentStock / dailySalesVelocity),
+  );
+
   let urgency: Urgency = "none";
-  let daysUntilStockout: number | undefined;
-  let reason = "";
+  let reason = `Stock healthy — ~${daysUntilStockout} days of cover left`;
 
-  if (currentStock <= warningLevel / 2) {
+  if (currentStock <= 0) {
     urgency = "critical";
-    reason = "Stock critically low";
-  } else if (currentStock < warningLevel) {
+    reason = "Out of stock";
+  } else if (currentStock <= reorderPoint * 0.5) {
+    urgency = "critical";
+    reason = `Critically low — only ~${daysUntilStockout} day(s) of stock left`;
+  } else if (currentStock <= reorderPoint) {
     urgency = "high";
-    reason = "Stock below warning level";
-  } else if (dailySalesVelocity > 0) {
-    const stockAboveWarning = currentStock - warningLevel;
-    daysUntilStockout = Math.ceil(stockAboveWarning / dailySalesVelocity);
-
-    if (daysUntilStockout <= 7) {
+    reason = `Below reorder point — ~${daysUntilStockout} days of stock left`;
+  } else {
+    const daysUntilReorderPoint = Math.floor(
+      (currentStock - reorderPoint) / dailySalesVelocity,
+    );
+    if (daysUntilReorderPoint <= 7) {
       urgency = "medium";
-      reason = `Will reach warning level in ~${daysUntilStockout} days`;
-    } else if (daysUntilStockout <= 14) {
+      reason = `Will hit reorder point in ~${daysUntilReorderPoint} days`;
+    } else if (daysUntilReorderPoint <= 14) {
       urgency = "low";
-      reason = `Will reach warning level in ~${daysUntilStockout} days`;
+      reason = `Will hit reorder point in ~${daysUntilReorderPoint} days`;
     }
   }
 
-  const restockQuantity = Math.max(0, idealLevel - currentStock);
-  const lastSnapshot = snapshots[snapshots.length - 1];
+  const restockQuantity = Math.max(0, targetStock - currentStock);
+  const shouldRestock = currentStock <= reorderPoint && restockQuantity > 0;
 
   return {
-    shouldRestock: urgency !== "none" && restockQuantity > 0,
+    shouldRestock,
     quantity: Math.ceil(restockQuantity),
     urgency,
     daysUntilStockout,
     reason,
     dailySalesVelocity,
+    reorderPoint: Math.round(reorderPoint),
+    targetStock: Math.round(targetStock),
+    leadTimeDays: Math.round(leadTimeDays),
+    coverageDays: COVERAGE_DAYS,
     dataSource,
     snapshotCount: snapshots.length,
     lastSnapshotAt: lastSnapshot?.captured_at,

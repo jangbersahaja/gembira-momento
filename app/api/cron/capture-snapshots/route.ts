@@ -197,4 +197,3 @@ async function detectRestocking(params: {
 
   return detectedCount;
 }
-

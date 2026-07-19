@@ -87,7 +87,7 @@ export default function Home() {
               </button>
             </Link>
             <a
-              href="https://share.google/FuUQcoGAe3SJJBGbm"
+              href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -273,7 +273,9 @@ export default function Home() {
                     Hours of Operation
                   </p>
                   <p className="text-xl text-gray-900 mt-2">
-                    Open Daily, 11:00 AM – 11:00 PM
+                    Weekdays: 1:00 PM – 11:00 PM
+                    <br />
+                    Weekends: 11:00 AM – 11:00 PM
                   </p>
                 </div>
 
@@ -288,15 +290,6 @@ export default function Home() {
                     No. 3, 148, Jln Ampang, Kampung Baru, 50450 Kuala Lumpur
                   </p>
                 </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-amber-700 uppercase tracking-wide">
-                    Languages Spoken
-                  </p>
-                  <p className="text-xl text-gray-900 mt-2">
-                    English, Mandarin, Malay, Arabic
-                  </p>
-                </div>
               </div>
 
               <div className="flex gap-4">
@@ -306,12 +299,12 @@ export default function Home() {
                   </button>
                 </Link>
                 <a
-                  href="https://share.google/FuUQcoGAe3SJJBGbm"
+                  href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
                   <button className="px-8 py-4 border-2 border-amber-700 text-amber-700 hover:bg-amber-50 rounded-full font-semibold text-lg transition-colors duration-200">
-                    Google Business Profile
+                    Get Directions
                   </button>
                 </a>
               </div>

@@ -5,15 +5,21 @@ import {
   type StockHistoryPoint,
 } from "@/components/SalesChart";
 import {
+  getLegacyAliasesFor,
+  isLegacyAliasSku,
+  resolveCanonicalSku,
+} from "@/lib/productAliases";
+import {
   useInventory,
   useProducts,
   useRestockAdvice,
   useStockHistory,
+  useSuppliers,
   useTransactions,
 } from "@/lib/useStorehubApi";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { use, useMemo } from "react";
-import products from "../../../data/products";
+import { use, useEffect, useMemo, useState } from "react";
 
 interface PageProps {
   params: Promise<{
@@ -42,21 +48,40 @@ export default function ProductDetailsPage({ params }: PageProps) {
   const { sku } = use(params);
   const decodedSku = decodeURIComponent(sku);
 
+  // If this SKU has been superseded/merged into another (see
+  // lib/productAliases.ts), redirect straight to the canonical SKU's page
+  // instead of showing stale, now-merged data under the old code.
+  useEffect(() => {
+    if (isLegacyAliasSku(decodedSku)) {
+      router.replace(
+        `/products/${encodeURIComponent(resolveCanonicalSku(decodedSku))}`,
+      );
+    }
+  }, [decodedSku, router]);
+
+  // Quick-jump search state — lets staff hop to any other product without
+  // going back to /products.
+  const [jumpQuery, setJumpQuery] = useState("");
+  const [jumpOpen, setJumpOpen] = useState(false);
+
   // Get storeId from environment variable
   const storeId = process.env.NEXT_PUBLIC_STOREHUB_STORE_ID || "";
 
   // Fetch data from API
-  const { data: productsData, loading: productsLoading } = useProducts();
-  const { data: transactionsData, loading: transactionsLoading } =
-    useTransactions();
+  const {
+    data: productsData,
+    loading: productsLoading,
+    error: productsError,
+  } = useProducts();
+  const {
+    data: transactionsData,
+    loading: transactionsLoading,
+    error: transactionsError,
+  } = useTransactions();
   const { data: inventoryData } = useInventory(storeId);
   const { data: restockAdviceData } = useRestockAdvice(decodedSku, storeId);
   const { data: stockHistoryData } = useStockHistory(decodedSku);
-
-  // Get product from CSV for supplier info
-  const csvProduct = useMemo(() => {
-    return products.find((p) => String(p.SKU) === decodedSku);
-  }, [decodedSku]);
+  const { data: suppliersData } = useSuppliers();
 
   // Get product from API data
   const apiProduct = useMemo(() => {
@@ -66,13 +91,70 @@ export default function ProductDetailsPage({ params }: PageProps) {
     );
   }, [productsData, decodedSku]);
 
-  // Get inventory from API
+  // Full product list sorted by name — powers Prev/Next navigation and the
+  // quick-jump search, so staff can hop between products without going back
+  // to /products.
+  const sortedProductList = useMemo(() => {
+    if (!productsData) return [] as ApiProduct[];
+    return (productsData as ApiProduct[])
+      .filter((p) => p.sku)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [productsData]);
+
+  const currentIndex = useMemo(
+    () => sortedProductList.findIndex((p) => String(p.sku) === decodedSku),
+    [sortedProductList, decodedSku],
+  );
+
+  const prevProduct =
+    currentIndex > 0 ? sortedProductList[currentIndex - 1] : null;
+  const nextProduct =
+    currentIndex >= 0 && currentIndex < sortedProductList.length - 1
+      ? sortedProductList[currentIndex + 1]
+      : null;
+
+  const jumpMatches = useMemo(() => {
+    const term = jumpQuery.trim().toLowerCase();
+    if (!term) return [];
+    return sortedProductList
+      .filter(
+        (p) =>
+          p.name.toLowerCase().includes(term) ||
+          String(p.sku).toLowerCase().includes(term),
+      )
+      .slice(0, 8);
+  }, [jumpQuery, sortedProductList]);
+
+  const goToProduct = (targetSku: string) => {
+    setJumpQuery("");
+    setJumpOpen(false);
+    router.push(`/products/${encodeURIComponent(targetSku)}`);
+  };
+
+  // Get inventory from API — folds in any legacy/superseded SKU's remaining
+  // stock (converted by its unit multiplier — see lib/productAliases.ts) so
+  // the displayed "Current Stock" reflects the true combined total instead
+  // of missing what's still sitting under an old SKU.
   const inventory = useMemo(() => {
-    if (!inventoryData || !apiProduct) return null;
-    return (inventoryData as InventoryItem[]).find(
-      (inv) => inv.productId === apiProduct.id,
-    );
-  }, [inventoryData, apiProduct]);
+    if (!inventoryData || !apiProduct || !productsData) return null;
+    const items = inventoryData as InventoryItem[];
+    const base = items.find((inv) => inv.productId === apiProduct.id);
+    if (!base) return null;
+
+    let quantityOnHand = base.quantityOnHand;
+    for (const alias of getLegacyAliasesFor(decodedSku)) {
+      const legacyProduct = (productsData as ApiProduct[]).find(
+        (p) => String(p.sku) === alias.legacySku,
+      );
+      if (!legacyProduct) continue;
+      const legacyInv = items.find((inv) => inv.productId === legacyProduct.id);
+      quantityOnHand +=
+        (legacyInv?.quantityOnHand ?? 0) * alias.unitsPerLegacyUnit;
+    }
+
+    return { ...base, quantityOnHand };
+  }, [inventoryData, apiProduct, productsData, decodedSku]);
 
   // Get product metrics from API transactions
   const productMetrics = useMemo(() => {
@@ -91,6 +173,17 @@ export default function ProductDetailsPage({ params }: PageProps) {
 
     const cost = Number(apiProduct.cost) || 0;
 
+    // Fold in any legacy/superseded SKU (see lib/productAliases.ts) so its
+    // sales history counts toward this product's totals, converted to this
+    // SKU's unit size (e.g. a discontinued 6-pack's sales become
+    // piece-equivalent units).
+    const legacySkuMultipliers = new Map(
+      getLegacyAliasesFor(decodedSku).map((a) => [
+        a.legacySku,
+        a.unitsPerLegacyUnit,
+      ]),
+    );
+
     // Process API transactions
     for (const tx of transactionsData) {
       // Only count completed transactions
@@ -101,9 +194,16 @@ export default function ProductDetailsPage({ params }: PageProps) {
       const txDate = new Date(tx.timestamp);
 
       for (const item of tx.items) {
-        // Match by SKU
-        if (String(item.sku) === decodedSku) {
-          const quantity = item.quantity || 0;
+        // Match by SKU — either this exact SKU, or a legacy SKU that's
+        // been merged into it (scaled by its unit multiplier).
+        const itemSku = String(item.sku);
+        const isExactMatch = itemSku === decodedSku;
+        const legacyMultiplier = legacySkuMultipliers.get(itemSku);
+        if (isExactMatch || legacyMultiplier !== undefined) {
+          const rawQuantity = item.quantity || 0;
+          const quantity = isExactMatch
+            ? rawQuantity
+            : rawQuantity * (legacyMultiplier || 1);
           const itemTotal = item.totalPrice || 0;
 
           totalQuantity += quantity;
@@ -199,6 +299,10 @@ export default function ProductDetailsPage({ params }: PageProps) {
     urgency: "critical" | "high" | "medium" | "low" | "none";
     daysUntilStockout?: number;
     reason: string;
+    reorderPoint: number;
+    targetStock: number;
+    leadTimeDays: number;
+    coverageDays: number;
     dataSource: "snapshots" | "estimated";
     snapshotCount: number;
   } | null;
@@ -217,11 +321,13 @@ export default function ProductDetailsPage({ params }: PageProps) {
   const stockChartData = useMemo<StockHistoryPoint[]>(() => {
     const history = stockHistoryData as {
       snapshots: {
+        sku: string;
         quantity: string;
         event_type: "clock_in" | "clock_out" | "manual";
         captured_at: string;
       }[];
       restockEvents: {
+        sku: string;
         quantity: string;
         source: string;
         occurred_at: string;
@@ -235,7 +341,16 @@ export default function ProductDetailsPage({ params }: PageProps) {
       return d.toLocaleDateString("en-MY", { month: "short", day: "numeric" });
     };
 
-    // Daily sold quantity for this SKU, from StoreHub transactions.
+    // Daily sold quantity for this SKU, from StoreHub transactions. Also
+    // folds in any legacy/superseded SKU's sales (see
+    // lib/productAliases.ts), scaled by its unit multiplier, so the chart
+    // reflects one continuous sales history across the SKU merge.
+    const legacyMultipliersForChart = new Map(
+      getLegacyAliasesFor(decodedSku).map((a) => [
+        a.legacySku,
+        a.unitsPerLegacyUnit,
+      ]),
+    );
     const soldByDay = new Map<string, number>();
     if (Array.isArray(transactionsData)) {
       for (const tx of transactionsData) {
@@ -243,7 +358,14 @@ export default function ProductDetailsPage({ params }: PageProps) {
         const day = new Date(tx.timestamp).toISOString().slice(0, 10);
         let qtyForSku = 0;
         for (const item of tx.items) {
-          if (String(item.sku) === decodedSku) qtyForSku += item.quantity || 0;
+          const itemSku = String(item.sku);
+          if (itemSku === decodedSku) {
+            qtyForSku += item.quantity || 0;
+          } else if (legacyMultipliersForChart.has(itemSku)) {
+            qtyForSku +=
+              (item.quantity || 0) *
+              (legacyMultipliersForChart.get(itemSku) || 1);
+          }
         }
         if (qtyForSku > 0) {
           soldByDay.set(day, (soldByDay.get(day) || 0) + qtyForSku);
@@ -262,13 +384,60 @@ export default function ProductDetailsPage({ params }: PageProps) {
       );
     }
 
-    // Real snapshot values per day (ground truth points — keep latest if
-    // multiple snapshots landed on the same day).
-    const realStockByDay = new Map<string, number>();
+    // Real snapshot values per day. The API merges snapshots from this SKU
+    // AND any legacy/superseded SKU (see lib/productAliases.ts) already
+    // scaled to this SKU's unit size — but they're still separate physical
+    // SKU codes, so on any given day the TRUE combined on-hand stock is the
+    // SUM of each SKU's most-recently-known value, not just whichever
+    // SKU's snapshot happens to land on that exact day. Naively overwriting
+    // a single map with the last-seen snapshot (regardless of which SKU it
+    // came from) was producing wrong/jumpy combined totals whenever both
+    // SKUs had snapshots on the same day, or once the legacy SKU stopped
+    // reporting after being discontinued.
+    const snapshotsBySku = new Map<string, { day: string; qty: number }[]>();
     for (const s of history.snapshots) {
-      const d = new Date(s.captured_at);
-      const day = d.toISOString().slice(0, 10);
-      realStockByDay.set(day, Number(s.quantity)); // relies on snapshots being pre-sorted ascending
+      const day = new Date(s.captured_at).toISOString().slice(0, 10);
+      const list = snapshotsBySku.get(s.sku) || [];
+      list.push({ day, qty: Number(s.quantity) });
+      snapshotsBySku.set(s.sku, list);
+    }
+    for (const list of snapshotsBySku.values()) {
+      list.sort((a, b) => a.day.localeCompare(b.day));
+    }
+
+    // Forward-fill: latest known quantity for `sku` at or before `day`.
+    const valueAsOf = (sku: string, day: string): number | undefined => {
+      const list = snapshotsBySku.get(sku);
+      if (!list) return undefined;
+      let result: number | undefined;
+      for (const entry of list) {
+        if (entry.day > day) break;
+        result = entry.qty;
+      }
+      return result;
+    };
+
+    // A day counts as a "real snapshot" checkpoint if ANY sku has one that
+    // day; its combined value is the sum of every sku's forward-filled
+    // quantity as of that day.
+    const allSkusWithSnapshots = Array.from(snapshotsBySku.keys());
+    const checkpointDays = new Set(
+      history.snapshots.map((s) =>
+        new Date(s.captured_at).toISOString().slice(0, 10),
+      ),
+    );
+    const realStockByDay = new Map<string, number>();
+    for (const day of checkpointDays) {
+      let total = 0;
+      let hasAny = false;
+      for (const sku of allSkusWithSnapshots) {
+        const val = valueAsOf(sku, day);
+        if (val !== undefined) {
+          total += val;
+          hasAny = true;
+        }
+      }
+      if (hasAny) realStockByDay.set(day, total);
     }
 
     // Anchor = most recent real snapshot day.
@@ -343,6 +512,29 @@ export default function ProductDetailsPage({ params }: PageProps) {
     );
   }
 
+  if (productsError || transactionsError) {
+    return (
+      <div className="w-full bg-white min-h-screen flex items-center justify-center">
+        <div className="text-center max-w-md px-6">
+          <div className="text-4xl mb-3">⚠️</div>
+          <h1 className="text-lg font-bold text-gray-900 mb-2">
+            Couldn&apos;t load this product
+          </h1>
+          <p className="text-sm text-gray-600 mb-4">
+            {(productsError || transactionsError)?.message ||
+              "Something went wrong while fetching product data. Please try again."}
+          </p>
+          <button
+            onClick={() => router.back()}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
+          >
+            ← Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!apiProduct) {
     return (
       <div className="w-full bg-white min-h-screen">
@@ -378,27 +570,157 @@ export default function ProductDetailsPage({ params }: PageProps) {
     return value.toLocaleString("en-MY");
   };
 
-  const supplierName = csvProduct?.Supplier || "Unknown";
+  const supplierName =
+    (suppliersData && suppliersData[decodedSku]) || "Unknown";
+
+  const isLowStock =
+    inventory?.warningStock !== undefined &&
+    inventory?.quantityOnHand !== undefined &&
+    inventory.quantityOnHand <= inventory.warningStock;
+
+  const stockPercent =
+    inventory?.idealStock && inventory.idealStock > 0
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            ((inventory.quantityOnHand ?? 0) / inventory.idealStock) * 100,
+          ),
+        )
+      : null;
 
   return (
     <div className="w-full bg-gray-50 min-h-screen">
-      {/* Sticky Header */}
-      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
-        <div className="mx-auto max-w-7xl px-4 md:px-6 py-3 md:py-4 flex items-center justify-between gap-4">
+      {/* Sticky Header — offset below the site-wide Header (see
+          --app-header-height in components/Header.tsx) so the two don't
+          collide/overlap on scroll */}
+      <div
+        className="sticky z-20 bg-white border-b border-gray-200 shadow-sm"
+        style={{ top: "var(--app-header-height, 64px)" }}
+      >
+        <div className="mx-auto max-w-7xl px-4 md:px-6 py-3 md:py-4 flex items-center gap-3 md:gap-4">
           <button
             onClick={() => router.back()}
             className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shrink-0"
           >
             ← Back
           </button>
+
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg md:text-xl font-bold text-gray-900 truncate">
+            <h1 className="text-lg md:text-xl font-bold text-gray-900 truncate flex items-center gap-2">
               {apiProduct.name}
+              {isLowStock && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 shrink-0">
+                  LOW STOCK
+                </span>
+              )}
             </h1>
-            <p className="text-xs md:text-sm text-gray-600 truncate">
-              SKU: {apiProduct.sku}
-            </p>
+            <button
+              onClick={() => {
+                if (apiProduct.sku) {
+                  navigator.clipboard?.writeText(apiProduct.sku);
+                }
+              }}
+              title="Copy SKU"
+              className="text-xs md:text-sm text-gray-600 hover:text-gray-900 truncate"
+            >
+              SKU: {apiProduct.sku} 📋
+            </button>
           </div>
+
+          {/* Prev / Next quick nav — cycles alphabetically through all products */}
+          <div className="hidden sm:flex items-center gap-1 shrink-0">
+            <button
+              onClick={() =>
+                prevProduct && goToProduct(String(prevProduct.sku))
+              }
+              disabled={!prevProduct}
+              title={
+                prevProduct
+                  ? `Previous: ${prevProduct.name}`
+                  : "No previous product"
+              }
+              className="px-2.5 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              ←
+            </button>
+            <button
+              onClick={() =>
+                nextProduct && goToProduct(String(nextProduct.sku))
+              }
+              disabled={!nextProduct}
+              title={
+                nextProduct ? `Next: ${nextProduct.name}` : "No next product"
+              }
+              className="px-2.5 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              →
+            </button>
+          </div>
+
+          {/* Quick-jump search — hop to any other product without leaving this page */}
+          <div className="relative w-40 sm:w-56 md:w-72 shrink-0">
+            <input
+              type="text"
+              value={jumpQuery}
+              onChange={(e) => {
+                setJumpQuery(e.target.value);
+                setJumpOpen(true);
+              }}
+              onFocus={() => setJumpOpen(true)}
+              onBlur={() => setTimeout(() => setJumpOpen(false), 150)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && jumpMatches.length > 0) {
+                  goToProduct(String(jumpMatches[0].sku));
+                } else if (e.key === "Escape") {
+                  setJumpOpen(false);
+                }
+              }}
+              placeholder="Jump to product..."
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {jumpOpen && jumpMatches.length > 0 && (
+              <div className="absolute right-0 mt-1 w-64 sm:w-80 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg z-30">
+                {jumpMatches.map((p) => (
+                  <button
+                    key={p.sku}
+                    onMouseDown={() => goToProduct(String(p.sku))}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                  >
+                    <div className="font-medium text-gray-900 truncate">
+                      {p.name}
+                    </div>
+                    <div className="text-xs text-gray-500 font-mono">
+                      {p.sku}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {jumpOpen && jumpQuery.trim() && jumpMatches.length === 0 && (
+              <div className="absolute right-0 mt-1 w-64 sm:w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-30 px-3 py-2 text-sm text-gray-500">
+                No matches
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Mobile Prev/Next row (hidden on sm+, shown alongside search above) */}
+        <div className="sm:hidden flex items-center justify-between gap-2 px-4 pb-3">
+          <button
+            onClick={() => prevProduct && goToProduct(String(prevProduct.sku))}
+            disabled={!prevProduct}
+            className="flex-1 px-3 py-2 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed truncate"
+          >
+            ← {prevProduct ? prevProduct.name : "Prev"}
+          </button>
+          <button
+            onClick={() => nextProduct && goToProduct(String(nextProduct.sku))}
+            disabled={!nextProduct}
+            className="flex-1 px-3 py-2 text-xs font-medium border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed truncate"
+          >
+            {nextProduct ? nextProduct.name : "Next"} →
+          </button>
         </div>
       </div>
 
@@ -406,19 +728,25 @@ export default function ProductDetailsPage({ params }: PageProps) {
       <div className="mx-auto max-w-7xl px-4 md:px-6 py-4 md:py-6">
         {/* Product Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+          <Link
+            href={`/products?category=${encodeURIComponent(apiProduct.category || "Uncategorized")}`}
+            className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:border-blue-300 hover:shadow-md transition-all"
+          >
             <p className="text-gray-600 text-xs font-medium mb-1">Category</p>
-            <p className="text-sm md:text-base font-semibold text-gray-900 truncate">
+            <p className="text-sm md:text-base font-semibold text-blue-700 truncate">
               {apiProduct.category || "Uncategorized"}
             </p>
-          </div>
+          </Link>
 
-          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
+          <Link
+            href={`/products?supplier=${encodeURIComponent(supplierName)}`}
+            className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:border-green-300 hover:shadow-md transition-all"
+          >
             <p className="text-gray-600 text-xs font-medium mb-1">Supplier</p>
-            <p className="text-sm md:text-base font-semibold text-gray-900 truncate">
+            <p className="text-sm md:text-base font-semibold text-green-700 truncate">
               {supplierName}
             </p>
-          </div>
+          </Link>
 
           <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
             <p className="text-gray-600 text-xs font-medium mb-1">Price</p>
@@ -441,10 +769,29 @@ export default function ProductDetailsPage({ params }: PageProps) {
             <p className="text-gray-600 text-xs font-medium mb-2">
               Current Stock
             </p>
-            <p className="text-2xl md:text-3xl font-bold text-gray-900">
+            <p
+              className={`text-2xl md:text-3xl font-bold ${isLowStock ? "text-red-600" : "text-gray-900"}`}
+            >
               {inventory?.quantityOnHand ?? "—"}
             </p>
             <p className="text-xs text-gray-500 mt-1">units on hand</p>
+            {stockPercent !== null && (
+              <div className="mt-2">
+                <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${
+                      isLowStock ? "bg-red-500" : "bg-blue-500"
+                    }`}
+                    style={{ width: `${stockPercent}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Ideal: {inventory?.idealStock}
+                  {inventory?.warningStock !== undefined &&
+                    ` • Warning: ${inventory.warningStock}`}
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4">
@@ -515,11 +862,19 @@ export default function ProductDetailsPage({ params }: PageProps) {
                   {restockingSuggestion.daysUntilStockout !== undefined && (
                     <>
                       {" "}
-                      (will reach warning in ~
-                      {restockingSuggestion.daysUntilStockout} days)
+                      (~{restockingSuggestion.daysUntilStockout} days of cover
+                      left)
                     </>
                   )}
                 </div>
+                {restockingSuggestion.reorderPoint > 0 && (
+                  <div className="text-[11px] text-gray-400 mt-1">
+                    Reorder point: {restockingSuggestion.reorderPoint} units •
+                    Target after restock: {restockingSuggestion.targetStock}{" "}
+                    units • Est. lead time: {restockingSuggestion.leadTimeDays}{" "}
+                    days
+                  </div>
+                )}
                 <div className="text-[11px] text-gray-400 mt-1">
                   {restockingSuggestion.dataSource === "snapshots"
                     ? `Based on ${restockingSuggestion.snapshotCount} shift stock snapshots`

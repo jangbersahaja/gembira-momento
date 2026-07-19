@@ -243,6 +243,7 @@ export function useRestockAdvice(sku: string, storeId?: string) {
     const query = storeId ? `?storeId=${encodeURIComponent(storeId)}` : "";
     const res = await fetch(
       `/api/restock-advice/${encodeURIComponent(sku)}${query}`,
+      { cache: "no-store" },
     );
     if (!res.ok) throw new Error("Failed to fetch restock advice");
     return res.json();
@@ -265,6 +266,42 @@ export function useStockHistory(sku: string) {
   }, [sku]);
 
   return useApiData(fetchHistory, [sku]);
+}
+
+/**
+ * Hook for fetching bulk restocking advice for every SKU at once (see
+ * app/api/restock-advice/bulk/route.ts). Used by /products so the list
+ * table can show reorder point / urgency without one request per row.
+ */
+export function useBulkRestockAdvice(storeId: string) {
+  const fetchBulkAdvice = useCallback(async () => {
+    if (!storeId)
+      throw new Error("storeId is required to fetch restock advice");
+    const res = await fetch(
+      `/api/restock-advice/bulk?storeId=${encodeURIComponent(storeId)}`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) throw new Error("Failed to fetch bulk restock advice");
+    return res.json();
+  }, [storeId]);
+
+  return useApiData(fetchBulkAdvice, [storeId]);
+}
+
+/**
+ * Hook for fetching the SKU -> Supplier lookup map (see
+ * app/api/suppliers/route.ts). This keeps the large CSV-generated
+ * data/products.ts catalog server-side only — the client just gets a small
+ * { sku: supplier } JSON object.
+ */
+export function useSuppliers() {
+  const fetchSuppliers = useCallback(async () => {
+    const res = await fetch("/api/suppliers");
+    if (!res.ok) throw new Error("Failed to fetch supplier data");
+    return res.json() as Promise<Record<string, string>>;
+  }, []);
+
+  return useApiData(fetchSuppliers, []);
 }
 
 /**

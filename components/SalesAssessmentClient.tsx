@@ -1,12 +1,16 @@
 "use client";
 
+import { getAliasMultiplier, resolveCanonicalSku } from "@/lib/productAliases";
 import {
   useEmployees,
   useProducts,
   useTransactions,
 } from "@/lib/useStorehubApi";
 import { Fragment, useMemo, useRef, useState } from "react";
-import products from "../data/products";
+import {
+  default as products,
+  default as staticProductsData,
+} from "../data/products";
 import {
   DayOfWeekTrendCharts,
   PaymentTypeBarChart,
@@ -466,13 +470,35 @@ const groupByProduct = (
     if (to && date > to) continue;
 
     for (const item of txn.items) {
-      const name = String(item.productName || "");
-      const quantity = item.quantity || 0;
+      const rawSku = String(item.sku || "");
+      const sku = resolveCanonicalSku(rawSku);
+      const multiplier = getAliasMultiplier(rawSku);
+      const rawQuantity = item.quantity || 0;
+      // Only the unit count is converted to piece-equivalents (e.g. 1
+      // bundle of 6 -> 6 pieces). The actual sales revenue recorded on the
+      // transaction is real money and must NOT be scaled by the multiplier.
+      const quantity = rawQuantity * multiplier;
       const total = item.totalPrice || 0;
-      const sku = String(item.sku || "");
 
-      const unitCost = getCost(sku, name, costBySkuMap, costByNameMap);
-      const totalCost = unitCost * quantity;
+      // Prefer the canonical product's own name so legacy-SKU sales merge
+      // under the same row as the current product instead of a separate one.
+      const canonicalProduct = sku
+        ? staticProductsData.find((p) => p.SKU === sku)
+        : undefined;
+      const name = canonicalProduct
+        ? String(canonicalProduct["Product Name"] || "")
+        : String(item.productName || "");
+
+      // Unit cost is looked up against the raw SKU (its own recorded cost
+      // per its own unit), so multiplying by the RAW quantity yields the
+      // correct total cost regardless of the alias unit conversion.
+      const unitCost = getCost(
+        rawSku,
+        String(item.productName || ""),
+        costBySkuMap,
+        costByNameMap,
+      );
+      const totalCost = unitCost * rawQuantity;
 
       if (!productsMap.has(name)) {
         productsMap.set(name, { total: 0, quantity: 0, cost: 0, sku });
@@ -729,31 +755,42 @@ const groupBySupplier = (
     if (to && date > to) continue;
 
     for (const item of txn.items) {
+      const rawSku = String(item.sku || "");
+      const sku = resolveCanonicalSku(rawSku);
+      const multiplier = getAliasMultiplier(rawSku);
       const subtotal = item.totalPrice || 0;
-      const quantity = item.quantity || 0;
-      const sku = String(item.sku || "");
-      const name = String(item.productName || "").trim();
+      const rawQuantity = item.quantity || 0;
+      const quantity = rawQuantity * multiplier;
+      const rawName = String(item.productName || "").trim();
 
       // Find supplier from products data
       let product = sku && products.find((p) => p.SKU === sku);
 
-      if (!product && name) {
-        product = products.find((p) => p["Product Name"] === name);
+      if (!product && rawName) {
+        product = products.find((p) => p["Product Name"] === rawName);
       }
 
-      if (!product && name) {
+      if (!product && rawName) {
         product = products.find(
-          (p) => String(p["Product Name"]).trim() === name,
+          (p) => String(p["Product Name"]).trim() === rawName,
         );
       }
 
-      if (!product && name) {
+      if (!product && rawName) {
         product = products.find(
           (p) =>
             String(p["Product Name"]).toLowerCase().trim() ===
-            name.toLowerCase(),
+            rawName.toLowerCase(),
         );
       }
+
+      // Prefer the canonical product's own name so legacy-SKU sales (e.g.
+      // SH0100) merge under the same product row as SH0053 instead of
+      // showing up as a separate "STRIP KEYCHAIN" line.
+      const name =
+        product && String(product.SKU || "") === sku
+          ? String(product["Product Name"] || "") || rawName
+          : rawName;
 
       const supplierName = product ? String(product.Supplier || "") : "";
 
@@ -770,8 +807,8 @@ const groupBySupplier = (
         ? "Consignment"
         : "Outright";
 
-      const unitCost = getCost(sku, name, costBySkuMap, costByNameMap);
-      const totalCost = unitCost * quantity;
+      const unitCost = getCost(rawSku, rawName, costBySkuMap, costByNameMap);
+      const totalCost = unitCost * rawQuantity;
 
       // Create unique key for supplier + supply type combination
       const key = `${displaySupplier}|${supplyType}`;
@@ -1141,7 +1178,10 @@ export default function SalesAssessmentClient() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
+      <div
+        className="sticky z-20 bg-white border-b border-gray-200 shadow-sm"
+        style={{ top: "var(--app-header-height, 64px)" }}
+      >
         <div className="mx-auto max-w-7xl px-4 md:px-6 py-3 md:py-4">
           <div className="flex items-center justify-between gap-4">
             <div>

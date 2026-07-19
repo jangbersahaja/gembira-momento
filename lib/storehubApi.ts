@@ -112,11 +112,16 @@ export async function getProducts(filters?: {
 
 /**
  * Get a specific product by SKU
+ *
+ * NOTE: StoreHub's `/products?sku=...` query param is silently ignored by
+ * their API — it returns the full, unfiltered product list regardless. We
+ * must filter client-side, otherwise `products[0]` would be an arbitrary
+ * unrelated product.
  */
 export async function getProductBySku(sku: string): Promise<Product> {
-  const products = await getProducts({ sku });
+  const products = await getProducts();
   return (
-    products[0] || {
+    products.find((p) => p.sku === sku) || {
       id: "",
       sku,
       name: "",

@@ -15,12 +15,12 @@ export default function Footer() {
               </div>
             </div>
             <p className="text-sm text-gray-400 leading-relaxed">
-              Your premium Malaysian souvenir boutique in the heart of Kuala
-              Lumpur. Curating joy since 2026.
+              Your Malaysian souvenir boutique in the heart of Kuala Lumpur.
+              Curating joy since 2024.
             </p>
             <div className="flex gap-4 pt-4">
               <a
-                href="https://share.google/FuUQcoGAe3SJJBGbm"
+                href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
                 target="_blank"
                 rel="noreferrer"
                 className="w-10 h-10 rounded-full bg-amber-700 hover:bg-amber-600 flex items-center justify-center transition-colors text-lg"
@@ -94,9 +94,9 @@ export default function Footer() {
               <li className="flex gap-2">
                 <span className="text-amber-400">⏰</span>
                 <span>
-                  Open Daily
+                  Weekdays: 1:00 PM – 11:00 PM
                   <br />
-                  11:00 AM – 11:00 PM
+                  Weekends: 11:00 AM – 11:00 PM
                 </span>
               </li>
             </ul>
@@ -108,27 +108,19 @@ export default function Footer() {
             <ul className="space-y-3 text-sm text-gray-400">
               <li>
                 <a
-                  href="mailto:hello@gembiramomento.my"
+                  href="mailto:gembiraceo@gmail.com"
                   className="hover:text-amber-400 transition-colors"
                 >
-                  📧 hello@gembiramomento.my
+                  📧 gembiraceo@gmail.com
                 </a>
               </li>
               <li>
                 <a
-                  href="tel:+60312345678"
+                  href="tel:+60123883538"
                   className="hover:text-amber-400 transition-colors"
                 >
-                  📱 +603 1234 5678
+                  📱 +6012-388 3538
                 </a>
-              </li>
-              <li className="pt-2">
-                <p className="text-xs text-gray-500 mb-2">Languages Spoken:</p>
-                <p className="text-xs">
-                  English • Mandarin
-                  <br />
-                  Malay • Arabic
-                </p>
               </li>
             </ul>
           </div>

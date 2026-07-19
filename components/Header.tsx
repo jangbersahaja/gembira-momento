@@ -2,11 +2,33 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function Header() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Publish the header's real rendered height as a CSS variable so any
+  // page-level sticky sub-headers (e.g. /products, /reports) can stick
+  // *below* this header instead of colliding with it at the same top:0.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+
+    const setHeight = () => {
+      document.documentElement.style.setProperty(
+        "--app-header-height",
+        `${el.offsetHeight}px`,
+      );
+    };
+
+    setHeight();
+
+    const observer = new ResizeObserver(setHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [pathname, mobileMenuOpen]);
 
   // Check if we're on a management page
   const isManagementPage =
@@ -34,7 +56,10 @@ export default function Header() {
   const currentLinks = isManagementPage ? managementLinks : publicLinks;
 
   return (
-    <header className="w-full bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50">
+    <header
+      ref={headerRef}
+      className="w-full bg-white border-b border-gray-100 shadow-sm sticky top-0 z-50"
+    >
       <div className="mx-auto max-w-7xl px-6">
         {/* Top Info Bar - Only show on public pages */}
         {!isManagementPage && (
@@ -54,16 +79,16 @@ export default function Header() {
             </div>
             <div className="flex items-center gap-4">
               <a
-                href="https://share.google/FuUQcoGAe3SJJBGbm"
+                href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
                 target="_blank"
                 rel="noreferrer"
                 className="hover:text-amber-700 transition-colors"
               >
-                Google Business
+                Get Directions
               </a>
               <span className="text-gray-300">|</span>
               <a
-                href="mailto:hello@gembiramomento.my"
+                href="mailto:gembiraceo@gmail.com"
                 className="hover:text-amber-700 transition-colors"
               >
                 Email
@@ -110,7 +135,7 @@ export default function Header() {
               </Link>
             ) : (
               <a
-                href="https://share.google/FuUQcoGAe3SJJBGbm"
+                href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
                 target="_blank"
                 rel="noreferrer"
                 className="px-6 py-2.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-full transition-colors duration-200 text-sm whitespace-nowrap"
@@ -131,7 +156,7 @@ export default function Header() {
               </Link>
             ) : (
               <a
-                href="https://share.google/FuUQcoGAe3SJJBGbm"
+                href="https://maps.app.goo.gl/5vWdi4qrUgKq91ff7"
                 target="_blank"
                 rel="noreferrer"
                 className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-full transition-colors duration-200 text-xs whitespace-nowrap"

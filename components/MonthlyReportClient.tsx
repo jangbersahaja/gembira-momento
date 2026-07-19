@@ -1,5 +1,6 @@
 "use client";
 
+import { getAliasMultiplier, resolveCanonicalSku } from "@/lib/productAliases";
 import {
   useEmployees,
   useProducts,
@@ -342,12 +343,14 @@ function getMonthData(
   // Build supplier lookup from static CSV-derived product data (has Supplier field)
   const supplierBySkuMap = new Map<string, string>();
   const supplierByNameMap = new Map<string, string>();
+  const productNameBySkuMap = new Map<string, string>();
   for (const p of staticProducts as any[]) {
     const sku = String(p["SKU"] || "");
     const name = String(p["Product Name"] || "").trim();
     const supplier = String(p["Supplier"] || "");
     if (sku) supplierBySkuMap.set(sku, supplier);
     if (name) supplierByNameMap.set(name, supplier);
+    if (sku && name) productNameBySkuMap.set(sku, name);
   }
 
   const getSupplierName = (sku: string, name: string) => {
@@ -764,21 +767,30 @@ function getMonthData(
       (reportData.paymentBreakdown[method] || 0) + tx.total;
 
     for (const item of tx.items || []) {
-      const sku = String(item.sku || "");
+      const rawSku = String(item.sku || "");
+      // Fold legacy/superseded SKUs (e.g. discontinued SH0100 bundle) into
+      // their canonical replacement (e.g. SH0053 sold per piece) so they
+      // report as ONE product/supplier line instead of splitting history.
+      const sku = resolveCanonicalSku(rawSku);
+      const aliasMultiplier = getAliasMultiplier(rawSku);
+      const rawQuantity = item.quantity || 0;
+      const quantity = rawQuantity * aliasMultiplier;
       const name = String(item.productName || "").trim();
-      const quantity = item.quantity || 0;
       const itemSales = item.totalPrice || 0;
 
-      // Get product cost (prefer live API cost data)
+      // Get product cost (prefer live API cost data). Unit cost is looked
+      // up against the raw SKU/productId (its own recorded cost per its own
+      // unit), so multiplying by the raw (un-scaled) quantity yields the
+      // correct total cost regardless of the alias unit conversion.
       let unitCost = 0;
       if (item.productId) {
         const productInfo = productMap.get(`id:${item.productId}`);
         unitCost = productInfo?.cost || 0;
-      } else if (sku) {
-        const productInfo = productMap.get(`sku:${sku}`);
+      } else if (rawSku) {
+        const productInfo = productMap.get(`sku:${rawSku}`);
         unitCost = productInfo?.cost || 0;
       }
-      const itemCost = unitCost * quantity;
+      const itemCost = unitCost * rawQuantity;
       currentDaily.cost += itemCost;
 
       // Supplier / supply-type aggregation
@@ -813,9 +825,11 @@ function getMonthData(
         reportData.consignmentTotals.cost += itemCost;
       }
 
-      // Top products aggregation
+      // Top products aggregation — group by canonical SKU so legacy-SKU
+      // sales merge into the current product's line.
       const productKey = sku || name || "Unknown";
-      const productDisplayName = name || sku || "Unknown product";
+      const productDisplayName =
+        productNameBySkuMap.get(sku) || name || sku || "Unknown product";
       const currentProduct = topProductsMap.get(productKey) || {
         name: productDisplayName,
         quantity: 0,
@@ -1225,7 +1239,10 @@ export default function MonthlyReportClient() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
+      <div
+        className="sticky z-20 bg-white border-b border-gray-200 shadow-sm"
+        style={{ top: "var(--app-header-height, 64px)" }}
+      >
         <div className="mx-auto max-w-7xl px-4 md:px-6 py-3 md:py-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
