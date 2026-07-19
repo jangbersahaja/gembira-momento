@@ -490,29 +490,29 @@ export function CumulativeSalesChart({ data }: { data: CumulativePoint[] }) {
  * up more than sales alone would explain reflects a real restock/stocking
  * event captured at a shift clock-in/out.
  */
-export function StockVsSalesChart({ data }: { data: StockHistoryPoint[] }) {
-  const StockTooltip = ({
-    active,
-    payload,
-    label,
-  }: {
-    active?: boolean;
-    payload?: { name: string; value: number; color: string }[];
-    label?: string;
-  }) => {
-    if (!active || !payload?.length) return null;
-    return (
-      <div className="rounded-lg border bg-white p-3 shadow-lg text-sm">
-        <p className="font-semibold text-gray-900 mb-2">{label}</p>
-        {payload.map((p) => (
-          <p key={p.name} style={{ color: p.color }}>
-            {p.name}: {p.value}
-          </p>
-        ))}
-      </div>
-    );
-  };
+const StockTooltipContent = ({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { name: string; value: number; color: string }[];
+  label?: string;
+}) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border bg-white p-3 shadow-lg text-sm">
+      <p className="font-semibold text-gray-900 mb-2">{label}</p>
+      {payload.map((p) => (
+        <p key={p.name} style={{ color: p.color }}>
+          {p.name}: {p.value}
+        </p>
+      ))}
+    </div>
+  );
+};
 
+export function StockVsSalesChart({ data }: { data: StockHistoryPoint[] }) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <ComposedChart
@@ -551,7 +551,7 @@ export function StockVsSalesChart({ data }: { data: StockHistoryPoint[] }) {
             fontSize: 11,
           }}
         />
-        <Tooltip content={<StockTooltip />} />
+        <Tooltip content={<StockTooltipContent />} />
         <Legend wrapperStyle={{ paddingTop: 56, fontSize: 12 }} />
         <Bar
           yAxisId="sold"
