@@ -51,7 +51,7 @@ export default function Header({ role }: { role?: Role | null }) {
     {
       href: "/sales-assessment",
       label: "Sales Analytics",
-      roles: ["ADMIN", "MANAGEMENT", "SUPERVISOR"],
+      roles: ["ADMIN", "MANAGEMENT"],
     },
     {
       href: "/products",

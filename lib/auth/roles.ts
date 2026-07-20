@@ -3,7 +3,7 @@
  *
  * ADMIN       - all access + can generate one-time registration links
  * MANAGEMENT  - all management pages
- * SUPERVISOR  - sales-dashboard, sales-assessment, products
+ * SUPERVISOR  - sales-dashboard, products
  * STAFF       - sales-dashboard only
  */
 export type Role = "ADMIN" | "MANAGEMENT" | "SUPERVISOR" | "STAFF";
@@ -32,7 +32,7 @@ export const ROUTE_ACCESS: Array<{ prefix: string; roles: Role[] }> = [
   { prefix: "/reports", roles: ["ADMIN", "MANAGEMENT"] },
   {
     prefix: "/sales-assessment",
-    roles: ["ADMIN", "MANAGEMENT", "SUPERVISOR"],
+    roles: ["ADMIN", "MANAGEMENT"],
   },
   { prefix: "/products", roles: ["ADMIN", "MANAGEMENT", "SUPERVISOR"] },
   { prefix: "/admin", roles: ["ADMIN"] },
@@ -45,7 +45,7 @@ export function defaultRouteForRole(role: Role): string {
     case "MANAGEMENT":
       return "/dashboard";
     case "SUPERVISOR":
-      return "/sales-assessment";
+      return "/products";
     case "STAFF":
       return "/dashboard/sales-dashboard";
     default:

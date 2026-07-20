@@ -1,6 +1,7 @@
 "use client";
 
 import { CumulativeSalesChart } from "@/components/SalesChart";
+import type { Role } from "@/lib/auth/roles";
 import { useEffect, useMemo, useState } from "react";
 
 type TimePeriod = "today" | "yesterday" | "week" | "month" | "custom";
@@ -96,7 +97,12 @@ interface ApiShift {
 
 type ShiftData = Shift | ApiShift;
 
-export default function SalesDashboardClient() {
+export default function SalesDashboardClient({
+  role,
+}: {
+  role?: Role | null;
+} = {}) {
+  const canViewPaymentBreakdown = role !== "STAFF" && role !== "SUPERVISOR";
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("today");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
@@ -1330,34 +1336,38 @@ export default function SalesDashboardClient() {
           </div>
         </div>
 
-        {/* Payment Breakdown - Compact */}
-        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">
-            Payment Breakdown
-          </h3>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-lg p-3 border border-blue-200">
-              <p className="text-gray-600 text-xs font-medium mb-1">Cash</p>
-              <p className="text-lg font-bold text-blue-900">
-                {formatCurrency(metrics.paymentBreakdown.cash)}
-              </p>
-            </div>
+        {/* Payment Breakdown - Compact (hidden for Staff/Supervisor) */}
+        {canViewPaymentBreakdown && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">
+              Payment Breakdown
+            </h3>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-lg p-3 border border-blue-200">
+                <p className="text-gray-600 text-xs font-medium mb-1">Cash</p>
+                <p className="text-lg font-bold text-blue-900">
+                  {formatCurrency(metrics.paymentBreakdown.cash)}
+                </p>
+              </div>
 
-            <div className="bg-linear-to-br from-green-50 to-green-100 rounded-lg p-3 border border-green-200">
-              <p className="text-gray-600 text-xs font-medium mb-1">Card</p>
-              <p className="text-lg font-bold text-green-900">
-                {formatCurrency(metrics.paymentBreakdown.card)}
-              </p>
-            </div>
+              <div className="bg-linear-to-br from-green-50 to-green-100 rounded-lg p-3 border border-green-200">
+                <p className="text-gray-600 text-xs font-medium mb-1">Card</p>
+                <p className="text-lg font-bold text-green-900">
+                  {formatCurrency(metrics.paymentBreakdown.card)}
+                </p>
+              </div>
 
-            <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-lg p-3 border border-purple-200">
-              <p className="text-gray-600 text-xs font-medium mb-1">QR Code</p>
-              <p className="text-lg font-bold text-purple-900">
-                {formatCurrency(metrics.paymentBreakdown.qr)}
-              </p>
+              <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-lg p-3 border border-purple-200">
+                <p className="text-gray-600 text-xs font-medium mb-1">
+                  QR Code
+                </p>
+                <p className="text-lg font-bold text-purple-900">
+                  {formatCurrency(metrics.paymentBreakdown.qr)}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Cumulative Sales Trend */}
         <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
