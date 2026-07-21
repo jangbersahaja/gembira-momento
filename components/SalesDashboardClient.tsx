@@ -78,6 +78,27 @@ interface ApiTransaction {
 
 type TransactionData = Transaction | ApiTransaction; // Union type for both CSV and API data formats
 
+function getPaymentLabel(method: ApiTransaction["paymentMethod"]): string {
+  switch (method) {
+    case "cash":
+      return "Cash";
+    case "card":
+      return "Card";
+    case "qr":
+      return "QR";
+    default:
+      return "Other";
+  }
+}
+
+function getCsvPaymentLabel(t: Transaction): string {
+  if (parseFloat(t.Cash || "0") > 0) return "Cash";
+  if (parseFloat(t["Credit Card"] || "0") > 0) return "Credit Card";
+  if (parseFloat(t["Debit Card"] || "0") > 0) return "Debit Card";
+  if (parseFloat(t.QR || "0") > 0) return "QR";
+  return "-";
+}
+
 interface Shift {
   "Open Time": string;
   "Close Time": string;
@@ -1524,6 +1545,11 @@ export default function SalesDashboardClient({
                       <th className="text-left px-3 py-2 font-semibold text-gray-700">
                         Employee
                       </th>
+                      {canViewPaymentBreakdown && (
+                        <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                          Payment
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1562,6 +1588,13 @@ export default function SalesDashboardClient({
                                     : "-"
                                   : ""}
                               </td>
+                              {canViewPaymentBreakdown && (
+                                <td className="px-3 py-2 text-gray-600 capitalize">
+                                  {itemIdx === 0
+                                    ? getPaymentLabel(t.paymentMethod)
+                                    : ""}
+                                </td>
+                              )}
                             </tr>
                           ));
                         } else if (isCsvTransaction(t)) {
@@ -1588,6 +1621,11 @@ export default function SalesDashboardClient({
                               <td className="px-3 py-2 text-gray-600">
                                 {t.Employee}
                               </td>
+                              {canViewPaymentBreakdown && (
+                                <td className="px-3 py-2 text-gray-600 capitalize">
+                                  {getCsvPaymentLabel(t)}
+                                </td>
+                              )}
                             </tr>
                           );
                         }
