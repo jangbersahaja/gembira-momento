@@ -134,6 +134,9 @@ export default function SalesDashboardClient({
   >([]);
   const [shifts, setShifts] = useState<ShiftData[]>([]);
   const [employees, setEmployees] = useState<Record<string, string>>({}); // Map of employeeId to name
+  const [txSearchProduct, setTxSearchProduct] = useState<string>("");
+  const [txFilterPayment, setTxFilterPayment] = useState<string>("all");
+  const [txFilterStaff, setTxFilterStaff] = useState<string>("all");
 
   // Parse transaction data and get date
   const parseDate = (dateStr: string) => {
@@ -559,6 +562,99 @@ export default function SalesDashboardClient({
       );
     });
   }, [transactions, timePeriod, customStartDate, customEndDate]);
+
+  // Helper to get a display staff name for a transaction
+  const getTransactionStaffName = (t: TransactionData): string => {
+    if (isApiTransaction(t)) {
+      return t.employeeId ? employees[t.employeeId] || t.employeeId : "-";
+    }
+    if (isCsvTransaction(t)) {
+      return t.Employee || "-";
+    }
+    return "-";
+  };
+
+  // Helper to get a normalized payment key for a transaction
+  const getTransactionPaymentKey = (
+    t: TransactionData,
+  ): "cash" | "card" | "qr" | "other" => {
+    if (isApiTransaction(t)) return t.paymentMethod;
+    if (isCsvTransaction(t)) {
+      if (parseFloat(t.Cash || "0") > 0) return "cash";
+      if (
+        parseFloat(t["Credit Card"] || "0") > 0 ||
+        parseFloat(t["Debit Card"] || "0") > 0
+      )
+        return "card";
+      if (parseFloat(t.QR || "0") > 0) return "qr";
+      return "other";
+    }
+    return "other";
+  };
+
+  // Unique staff names present in the currently filtered (date-range) transactions
+  const staffOptions = useMemo(() => {
+    const names = new Set<string>();
+    filteredTransactions.forEach((t) => {
+      const name = getTransactionStaffName(t);
+      if (name && name !== "-") names.add(name);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredTransactions, employees]);
+
+  // Transactions after applying product search / payment / staff filters
+  const displayedTransactions = useMemo(() => {
+    const search = txSearchProduct.trim().toLowerCase();
+
+    return filteredTransactions.filter((t) => {
+      // Product name search
+      if (search) {
+        if (isApiTransaction(t)) {
+          const matches = t.items.some((item) =>
+            item.productName.toLowerCase().includes(search),
+          );
+          if (!matches) return false;
+        } else if (isCsvTransaction(t)) {
+          if (!(t.Item || "").toLowerCase().includes(search)) return false;
+        }
+      }
+
+      // Payment type filter
+      if (txFilterPayment !== "all") {
+        if (getTransactionPaymentKey(t) !== txFilterPayment) return false;
+      }
+
+      // Staff filter
+      if (txFilterStaff !== "all") {
+        if (getTransactionStaffName(t) !== txFilterStaff) return false;
+      }
+
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    filteredTransactions,
+    txSearchProduct,
+    txFilterPayment,
+    txFilterStaff,
+    employees,
+  ]);
+
+  // Whether any transaction search/filter is currently active
+  const hasActiveTxFilters =
+    txSearchProduct.trim() !== "" ||
+    txFilterPayment !== "all" ||
+    txFilterStaff !== "all";
+
+  // Subtotal sales amount for the currently displayed (filtered) transactions
+  const displayedSubtotal = useMemo(() => {
+    return displayedTransactions.reduce((sum, t) => {
+      if (isApiTransaction(t)) return sum + t.total;
+      if (isCsvTransaction(t)) return sum + parseFloat(t.SubTotal || "0");
+      return sum;
+    }, 0);
+  }, [displayedTransactions]);
 
   // Calculate metrics
   const metrics = useMemo<TransactionMetrics>(() => {
@@ -1517,13 +1613,60 @@ export default function SalesDashboardClient({
 
         {/* Recent Transactions */}
         <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">
-            Recent Transactions
-          </h3>
-          {filteredTransactions.length > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h3 className="text-sm font-semibold text-gray-900">
+              Transactions{" "}
+              <span className="text-gray-400 font-normal">
+                ({displayedTransactions.length})
+              </span>
+            </h3>
+            {hasActiveTxFilters && (
+              <span className="text-xs font-semibold text-orange-700 bg-orange-100 px-2.5 py-1 rounded-full">
+                Subtotal: {formatCurrency(displayedSubtotal)}
+              </span>
+            )}
+          </div>
+
+          {/* Search & Filters */}
+          <div className="flex flex-col sm:flex-row gap-2 mb-3">
+            <input
+              type="text"
+              value={txSearchProduct}
+              onChange={(e) => setTxSearchProduct(e.target.value)}
+              placeholder="Search product name..."
+              className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+            />
+            {canViewPaymentBreakdown && (
+              <select
+                value={txFilterPayment}
+                onChange={(e) => setTxFilterPayment(e.target.value)}
+                className="border border-gray-300 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+              >
+                <option value="all">All Payments</option>
+                <option value="cash">Cash</option>
+                <option value="card">Card</option>
+                <option value="qr">QR</option>
+                <option value="other">Other</option>
+              </select>
+            )}
+            <select
+              value={txFilterStaff}
+              onChange={(e) => setTxFilterStaff(e.target.value)}
+              className="border border-gray-300 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+            >
+              <option value="all">All Staff</option>
+              {staffOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {displayedTransactions.length > 0 ? (
             <>
               {/* Table view for desktop */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-128">
                 <table className="w-full text-xs">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
@@ -1552,56 +1695,105 @@ export default function SalesDashboardClient({
                       )}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {filteredTransactions
+                  <tbody>
+                    {displayedTransactions
                       .slice()
                       .reverse()
-                      .slice(0, 15)
                       .map((t, idx) => {
+                        const groupBg =
+                          idx % 2 === 0 ? "bg-white" : "bg-gray-50/50";
+
                         if (isApiTransaction(t)) {
-                          return t.items.map((item, itemIdx) => (
+                          const isMulti = t.items.length > 1;
+                          const rowSpan = isMulti
+                            ? t.items.length + 1
+                            : t.items.length;
+
+                          const itemRows = t.items.map((item, itemIdx) => (
                             <tr
                               key={`${idx}-${itemIdx}`}
-                              className="hover:bg-gray-50 transition"
+                              className={`hover:bg-orange-50/60 transition ${groupBg} ${
+                                itemIdx === t.items.length - 1 && !isMulti
+                                  ? "border-b-2 border-gray-200"
+                                  : "border-b border-gray-100"
+                              }`}
                             >
-                              <td className="px-3 py-2 font-mono text-gray-900">
-                                {itemIdx === 0 ? t.receiptNumber : ""}
-                              </td>
-                              <td className="px-3 py-2 text-gray-600">
-                                {itemIdx === 0
-                                  ? formatTimestamp(t.timestamp)
-                                  : ""}
-                              </td>
+                              {itemIdx === 0 && (
+                                <td
+                                  className="px-3 py-2 font-mono text-gray-900 align-top"
+                                  rowSpan={rowSpan}
+                                >
+                                  {t.receiptNumber}
+                                  {isMulti && (
+                                    <span className="ml-1.5 inline-block text-[10px] font-semibold text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded-full align-middle">
+                                      {t.items.length} items
+                                    </span>
+                                  )}
+                                </td>
+                              )}
+                              {itemIdx === 0 && (
+                                <td
+                                  className="px-3 py-2 text-gray-600 align-top"
+                                  rowSpan={rowSpan}
+                                >
+                                  {formatTimestamp(t.timestamp)}
+                                </td>
+                              )}
                               <td className="px-3 py-2 text-gray-600">
                                 {item.productName}
                               </td>
                               <td className="px-3 py-2 text-center text-gray-600">
                                 {item.quantity}
                               </td>
-                              <td className="px-3 py-2 font-semibold text-gray-900 text-right">
+                              <td className="px-3 py-2 font-medium text-gray-700 text-right">
                                 {formatCurrency(item.totalPrice)}
                               </td>
-                              <td className="px-3 py-2 text-gray-600">
-                                {itemIdx === 0
-                                  ? t.employeeId
+                              {itemIdx === 0 && (
+                                <td
+                                  className="px-3 py-2 text-gray-600 align-top"
+                                  rowSpan={rowSpan}
+                                >
+                                  {t.employeeId
                                     ? employees[t.employeeId] || t.employeeId
-                                    : "-"
-                                  : ""}
-                              </td>
-                              {canViewPaymentBreakdown && (
-                                <td className="px-3 py-2 text-gray-600 capitalize">
-                                  {itemIdx === 0
-                                    ? getPaymentLabel(t.paymentMethod)
-                                    : ""}
+                                    : "-"}
+                                </td>
+                              )}
+                              {canViewPaymentBreakdown && itemIdx === 0 && (
+                                <td
+                                  className="px-3 py-2 text-gray-600 capitalize align-top"
+                                  rowSpan={rowSpan}
+                                >
+                                  {getPaymentLabel(t.paymentMethod)}
                                 </td>
                               )}
                             </tr>
                           ));
+
+                          if (isMulti) {
+                            itemRows.push(
+                              <tr
+                                key={`${idx}-total`}
+                                className={`${groupBg} border-b-2 border-gray-200`}
+                              >
+                                <td
+                                  className="px-3 py-1.5 text-gray-700 text-right font-semibold"
+                                  colSpan={2}
+                                >
+                                  Total
+                                </td>
+                                <td className="px-3 py-1.5 font-bold text-gray-900 text-right">
+                                  {formatCurrency(t.total)}
+                                </td>
+                              </tr>,
+                            );
+                          }
+
+                          return itemRows;
                         } else if (isCsvTransaction(t)) {
                           return (
                             <tr
                               key={idx}
-                              className="hover:bg-gray-50 transition"
+                              className={`hover:bg-orange-50/60 transition border-b-2 border-gray-200 ${groupBg}`}
                             >
                               <td className="px-3 py-2 font-mono text-gray-900">
                                 {t["Receipt Number"]}
@@ -1636,10 +1828,9 @@ export default function SalesDashboardClient({
 
               {/* Card view for mobile */}
               <div className="md:hidden space-y-2 max-h-96 overflow-y-auto">
-                {filteredTransactions
+                {displayedTransactions
                   .slice()
                   .reverse()
-                  .slice(0, 15)
                   .map((t, idx) => {
                     if (isApiTransaction(t)) {
                       return (
