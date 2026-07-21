@@ -281,7 +281,126 @@ export default function SalesDashboardClient({
     fetchData();
   }, [timePeriod, customStartDate, customEndDate]);
 
-  // Fetch a historical baseline (last ~90 completed days) once, used to compute
+  // Auto-refresh data every 60 seconds
+  useEffect(() => {
+    // Skip auto-refresh for custom date ranges (user may be analyzing historical data)
+    if (timePeriod === "custom") return;
+
+    const interval = setInterval(() => {
+      // Re-trigger the main fetch by simulating a time period change
+      // This will run the entire fetch logic again with current date/time
+      const fetchData = async () => {
+        try {
+          const utcNow = new Date();
+          const malaysiaOffset = 8 * 60;
+          const utcOffset = utcNow.getTimezoneOffset();
+          const offsetDifference = malaysiaOffset + utcOffset;
+          const today = new Date(
+            utcNow.getTime() + offsetDifference * 60 * 1000,
+          );
+          today.setHours(0, 0, 0, 0);
+
+          let startDate = new Date(today);
+          let endDate = new Date(today);
+
+          if (timePeriod === "yesterday") {
+            startDate = new Date(today);
+            startDate.setDate(today.getDate() - 1);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date(startDate);
+            endDate.setDate(endDate.getDate() + 1);
+            endDate.setHours(23, 59, 59, 999);
+          } else if (timePeriod === "week") {
+            const dayOfWeek = today.getDay();
+            const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            startDate = new Date(today);
+            startDate.setDate(today.getDate() - daysToMonday);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date(startDate);
+            endDate.setDate(startDate.getDate() + 6);
+            endDate.setHours(23, 59, 59, 999);
+          } else if (timePeriod === "month") {
+            startDate = new Date(today);
+            startDate.setDate(1);
+            endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            endDate.setHours(23, 59, 59, 999);
+          } else {
+            // Today
+            startDate = new Date(today);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date(today);
+            endDate.setDate(today.getDate() + 1);
+            endDate.setHours(23, 59, 59, 999);
+          }
+
+          const formatDate = (d: Date) => {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, "0");
+            const day = String(d.getDate()).padStart(2, "0");
+            return `${year}-${month}-${day}`;
+          };
+
+          const startStr = formatDate(startDate);
+          const endStr = formatDate(endDate);
+
+          const txRes = await fetch(
+            `/api/storehub/transactions?startDate=${startStr}&endDate=${endStr}`,
+          );
+          const txData = await txRes.json();
+          setTransactions(Array.isArray(txData) ? txData : []);
+
+          try {
+            const timesheetRes = await fetch(
+              `/api/storehub/timesheets?from=${startStr}&to=${endStr}`,
+            );
+            const timesheetData = await timesheetRes.json();
+            if (Array.isArray(timesheetData)) {
+              const shiftsFromTimesheets = timesheetData.map(
+                (ts: Record<string, unknown>) => ({
+                  id: (ts.employeeId as string) + (ts.clockInTime as string),
+                  employeeId: ts.employeeId as string,
+                  date: startStr,
+                  startTime: ts.clockInTime as string,
+                  endTime: ts.clockOutTime as string,
+                  duration: 0,
+                  status: "completed" as const,
+                }),
+              );
+              setShifts(shiftsFromTimesheets);
+            } else {
+              setShifts([]);
+            }
+          } catch (timesheetError) {
+            console.warn("Timesheets fetch failed:", timesheetError);
+            setShifts([]);
+          }
+
+          try {
+            const empRes = await fetch("/api/storehub/employees");
+            const empData = await empRes.json();
+            if (Array.isArray(empData)) {
+              const empMap: Record<string, string> = {};
+              empData.forEach((emp: Record<string, unknown>) => {
+                if (emp.id && emp.firstName) {
+                  empMap[emp.id as string] =
+                    `${emp.firstName as string} ${(emp.lastName as string) || ""}`.trim();
+                }
+              });
+              setEmployees(empMap);
+            }
+          } catch (empError) {
+            console.warn("Employees fetch failed:", empError);
+          }
+        } catch (error) {
+          console.error("Error in auto-refresh:", error);
+        }
+      };
+
+      fetchData();
+    }, 60000); // 60000 ms = 60 seconds
+
+    return () => clearInterval(interval);
+  }, [timePeriod]);
   // the "average cumulative sales" comparison line. Excludes today since it's
   // incomplete and would skew the average.
   useEffect(() => {
