@@ -656,6 +656,136 @@ export default function SalesDashboardClient({
     }, 0);
   }, [displayedTransactions]);
 
+  // Cancelled transactions from the currently filtered date range
+  const cancelledTransactions = useMemo(() => {
+    if (!Array.isArray(transactions)) return [];
+
+    // Get today's date in Malaysia timezone (GMT+8)
+    const utcNow = new Date();
+    const malaysiaOffset = 8 * 60;
+    const utcOffset = utcNow.getTimezoneOffset();
+    const offsetDifference = malaysiaOffset + utcOffset;
+    const today = new Date(utcNow.getTime() + offsetDifference * 60 * 1000);
+    today.setHours(0, 0, 0, 0);
+
+    // If API data structure
+    if (transactions.length > 0 && isApiTransaction(transactions[0])) {
+      const validTransactions = transactions.filter(
+        (t) => isApiTransaction(t) && t.status === "cancelled",
+      );
+
+      // Parse the API timestamp and filter by time period
+      return validTransactions.filter((t) => {
+        if (!isApiTransaction(t)) return false;
+        try {
+          const txDate = new Date(t.timestamp);
+          // Convert to Malaysia timezone for comparison
+          const txMalaysiaTime = new Date(
+            txDate.getTime() + offsetDifference * 60 * 1000,
+          );
+          const txDateOnly = new Date(
+            txMalaysiaTime.getFullYear(),
+            txMalaysiaTime.getMonth(),
+            txMalaysiaTime.getDate(),
+          );
+          const todayOnly = new Date(
+            today.getFullYear(),
+            today.getMonth(),
+            today.getDate(),
+          );
+
+          if (timePeriod === "today") {
+            return txDateOnly.getTime() === todayOnly.getTime();
+          } else if (timePeriod === "yesterday") {
+            const yesterday = new Date(todayOnly);
+            yesterday.setDate(today.getDate() - 1);
+            return txDateOnly.getTime() === yesterday.getTime();
+          } else if (timePeriod === "week") {
+            const dayOfWeek = today.getDay();
+            const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            const weekStart = new Date(today);
+            weekStart.setDate(today.getDate() - daysToMonday);
+            weekStart.setHours(0, 0, 0, 0);
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekStart.getDate() + 6);
+            weekEnd.setHours(23, 59, 59, 999);
+
+            const weekStartOnly = new Date(
+              weekStart.getFullYear(),
+              weekStart.getMonth(),
+              weekStart.getDate(),
+            );
+            const weekEndOnly = new Date(
+              weekEnd.getFullYear(),
+              weekEnd.getMonth(),
+              weekEnd.getDate(),
+            );
+            return txDateOnly >= weekStartOnly && txDateOnly <= weekEndOnly;
+          } else if (timePeriod === "month") {
+            return (
+              txMalaysiaTime.getFullYear() === today.getFullYear() &&
+              txMalaysiaTime.getMonth() === today.getMonth()
+            );
+          } else if (timePeriod === "custom") {
+            if (!customStartDate || !customEndDate) return false;
+            const [sy, sm, sd] = customStartDate.split("-").map(Number);
+            const [ey, em, ed] = customEndDate.split("-").map(Number);
+            const customStart = new Date(sy, sm - 1, sd);
+            const customEnd = new Date(ey, em - 1, ed);
+            return txDateOnly >= customStart && txDateOnly <= customEnd;
+          }
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    }
+
+    // Legacy CSV data structure
+    let latestDate = new Date(2026, 4, 31);
+
+    transactions.forEach((t) => {
+      if (isCsvTransaction(t) && t.Time) {
+        const txDate = parseDate(t.Time);
+        if (txDate > latestDate) {
+          latestDate = txDate;
+        }
+      }
+    });
+
+    const csvToday = latestDate;
+    const start = new Date(csvToday);
+    const end = new Date(csvToday);
+
+    let startDate = start;
+    let endDate = end;
+
+    if (timePeriod === "today") {
+      startDate = start;
+      endDate = end;
+    } else if (timePeriod === "week") {
+      startDate = new Date(start);
+      startDate.setDate(csvToday.getDate() - csvToday.getDay());
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+    } else {
+      startDate = new Date(csvToday);
+      startDate.setDate(1);
+      endDate = new Date(csvToday);
+      endDate.setDate(32);
+      endDate.setMonth(endDate.getMonth() + 1);
+      endDate.setDate(0);
+    }
+
+    return transactions.filter((t) => {
+      if (!isCsvTransaction(t) || !t.Time) return false;
+      const txDate = parseDate(t.Time);
+      return (
+        txDate >= startDate && txDate <= endDate && t.Is_Cancelled === "True"
+      );
+    });
+  }, [transactions, timePeriod, customStartDate, customEndDate]);
+
   // Calculate metrics
   const metrics = useMemo<TransactionMetrics>(() => {
     let cashSales = 0;
@@ -1917,6 +2047,241 @@ export default function SalesDashboardClient({
             </p>
           )}
         </div>
+
+        {/* Cancelled Transactions */}
+        {cancelledTransactions.length > 0 && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 mt-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">
+              Cancelled Transactions{" "}
+              <span className="text-gray-400 font-normal">
+                ({cancelledTransactions.length})
+              </span>
+            </h3>
+
+            {/* Table view for desktop */}
+            <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-96">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                      Receipt #
+                    </th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                      Time
+                    </th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                      Product
+                    </th>
+                    <th className="text-center px-3 py-2 font-semibold text-gray-700">
+                      Qty
+                    </th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-700">
+                      Amount
+                    </th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                      Employee
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cancelledTransactions
+                    .slice()
+                    .reverse()
+                    .map((t, idx) => {
+                      const groupBg =
+                        idx % 2 === 0 ? "bg-white" : "bg-gray-50/50";
+
+                      if (isApiTransaction(t)) {
+                        const isMulti = t.items.length > 1;
+                        const rowSpan = isMulti
+                          ? t.items.length + 1
+                          : t.items.length;
+
+                        const itemRows = t.items.map((item, itemIdx) => (
+                          <tr
+                            key={`${idx}-${itemIdx}`}
+                            className={`${groupBg} ${
+                              itemIdx === t.items.length - 1 && !isMulti
+                                ? "border-b-2 border-gray-200"
+                                : "border-b border-gray-100"
+                            }`}
+                          >
+                            {itemIdx === 0 && (
+                              <td
+                                className="px-3 py-2 font-mono text-gray-500 line-through align-top"
+                                rowSpan={rowSpan}
+                              >
+                                {t.receiptNumber}
+                              </td>
+                            )}
+                            {itemIdx === 0 && (
+                              <td
+                                className="px-3 py-2 text-gray-500 line-through align-top"
+                                rowSpan={rowSpan}
+                              >
+                                {formatTimestamp(t.timestamp)}
+                              </td>
+                            )}
+                            <td className="px-3 py-2 text-gray-500 line-through">
+                              {item.productName}
+                            </td>
+                            <td className="px-3 py-2 text-center text-gray-500 line-through">
+                              {item.quantity}
+                            </td>
+                            <td className="px-3 py-2 font-medium text-gray-500 line-through text-right">
+                              {formatCurrency(item.totalPrice)}
+                            </td>
+                            {itemIdx === 0 && (
+                              <td
+                                className="px-3 py-2 text-gray-500 line-through align-top"
+                                rowSpan={rowSpan}
+                              >
+                                {t.employeeId
+                                  ? employees[t.employeeId] || t.employeeId
+                                  : "-"}
+                              </td>
+                            )}
+                          </tr>
+                        ));
+
+                        if (isMulti) {
+                          itemRows.push(
+                            <tr
+                              key={`${idx}-total`}
+                              className={`${groupBg} border-b-2 border-gray-200`}
+                            >
+                              <td
+                                className="px-3 py-1.5 text-gray-500 text-right font-semibold line-through"
+                                colSpan={2}
+                              >
+                                Total
+                              </td>
+                              <td className="px-3 py-1.5 font-bold text-gray-500 text-right line-through">
+                                {formatCurrency(t.total)}
+                              </td>
+                            </tr>,
+                          );
+                        }
+
+                        return itemRows;
+                      } else if (isCsvTransaction(t)) {
+                        return (
+                          <tr
+                            key={idx}
+                            className={`border-b-2 border-gray-200 ${groupBg}`}
+                          >
+                            <td className="px-3 py-2 font-mono text-gray-500 line-through">
+                              {t["Receipt Number"]}
+                            </td>
+                            <td className="px-3 py-2 text-gray-500 line-through">
+                              {formatTimestamp(t.Time)}
+                            </td>
+                            <td className="px-3 py-2 text-gray-500 line-through">
+                              {t.Item || "-"}
+                            </td>
+                            <td className="px-3 py-2 text-center text-gray-500 line-through">
+                              {t.Quantity}
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-gray-500 text-right line-through">
+                              {formatCurrency(parseFloat(t.SubTotal || "0"))}
+                            </td>
+                            <td className="px-3 py-2 text-gray-500 line-through">
+                              {t.Employee}
+                            </td>
+                          </tr>
+                        );
+                      }
+                    })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Card view for mobile */}
+            <div className="md:hidden space-y-2 max-h-96 overflow-y-auto">
+              {cancelledTransactions
+                .slice()
+                .reverse()
+                .map((t, idx) => {
+                  if (isApiTransaction(t)) {
+                    return (
+                      <div
+                        key={`api-${idx}`}
+                        className="bg-red-50 border border-red-200 rounded p-2.5 opacity-75"
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <p className="text-xs font-mono text-gray-500 line-through">
+                              #{t.receiptNumber}
+                            </p>
+                            <p className="text-xs text-gray-600 mt-0.5 line-through">
+                              {formatTimestamp(t.timestamp)}
+                            </p>
+                          </div>
+                          <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded font-semibold line-through">
+                            {formatCurrency(t.total)}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1 mb-2 border-t border-red-200 pt-2">
+                          {t.items.map((item, itemIdx) => (
+                            <div key={itemIdx} className="text-xs">
+                              <p className="text-gray-900 font-medium line-through">
+                                {item.productName}
+                              </p>
+                              <p className="text-gray-500 line-through">
+                                {item.quantity}x{" "}
+                                {formatCurrency(item.unitPrice)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <p className="text-xs text-gray-600 text-right border-t border-red-200 pt-1 line-through">
+                          {t.employeeId
+                            ? employees[t.employeeId] || t.employeeId
+                            : "-"}
+                        </p>
+                      </div>
+                    );
+                  } else if (isCsvTransaction(t)) {
+                    return (
+                      <div
+                        key={`csv-${idx}`}
+                        className="bg-red-50 border border-red-200 rounded p-2.5 opacity-75"
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <p className="text-xs font-mono text-gray-500 line-through">
+                              #{t["Receipt Number"]}
+                            </p>
+                            <p className="text-xs text-gray-600 mt-0.5 line-through">
+                              {formatTimestamp(t.Time)}
+                            </p>
+                          </div>
+                          <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded font-semibold line-through">
+                            {formatCurrency(parseFloat(t.SubTotal || "0"))}
+                          </span>
+                        </div>
+
+                        <div className="border-t border-red-200 pt-2 mb-2">
+                          <p className="text-gray-900 font-medium text-xs line-through">
+                            {t.Item || "-"}
+                          </p>
+                          <p className="text-gray-600 text-xs line-through">
+                            Qty: {t.Quantity}
+                          </p>
+                        </div>
+
+                        <p className="text-xs text-gray-600 text-right line-through">
+                          {t.Employee}
+                        </p>
+                      </div>
+                    );
+                  }
+                })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
