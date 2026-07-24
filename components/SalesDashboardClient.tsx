@@ -945,6 +945,50 @@ export default function SalesDashboardClient({
     };
   }, [filteredTransactions]);
 
+  // Calculate total days with data in the selected date range
+  const totalDaysWithData = useMemo<number>(() => {
+    const daySet = new Set<string>();
+
+    filteredTransactions.forEach((t) => {
+      try {
+        let dateKey: string;
+        if (isApiTransaction(t)) {
+          const d = new Date(t.timestamp);
+          const malaysiaOffset = 8 * 60;
+          const utcOffset = new Date().getTimezoneOffset();
+          const offsetDifference = malaysiaOffset + utcOffset;
+          const my = new Date(d.getTime() + offsetDifference * 60 * 1000);
+          dateKey = `${my.getFullYear()}-${String(my.getMonth() + 1).padStart(2, "0")}-${String(my.getDate()).padStart(2, "0")}`;
+        } else if (isCsvTransaction(t)) {
+          const d = parseDate(t.Time);
+          dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        } else {
+          return;
+        }
+        daySet.add(dateKey);
+      } catch {
+        return;
+      }
+    });
+
+    return daySet.size > 0 ? daySet.size : 1;
+  }, [filteredTransactions]);
+
+  // Check if this is a single day view
+  const isSingleDayPeriod = useMemo<boolean>(() => {
+    return (
+      timePeriod === "today" ||
+      timePeriod === "yesterday" ||
+      (timePeriod === "custom" && customStartDate === customEndDate)
+    );
+  }, [timePeriod, customStartDate, customEndDate]);
+
+  // Calculate average daily sales for the selected period (only for multi-day views)
+  const averageDailySales = useMemo<number>(() => {
+    const totalSales = metrics.totalSales;
+    return totalDaysWithData > 0 ? totalSales / totalDaysWithData : 0;
+  }, [metrics.totalSales, totalDaysWithData]);
+
   // Calculate previous period metrics for comparison
   const comparisonMetrics = useMemo<ComparisonMetrics>(() => {
     if (!Array.isArray(transactions)) {
@@ -1631,7 +1675,13 @@ export default function SalesDashboardClient({
       {/* Main Content */}
       <div className="mx-auto max-w-7xl px-4 md:px-6 py-4 md:py-6">
         {/* Key Metrics - Compact Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
+        <div
+          className={`grid gap-3 md:gap-4 mb-4 md:mb-6 ${
+            isSingleDayPeriod
+              ? "grid-cols-2 md:grid-cols-4"
+              : "grid-cols-2 md:grid-cols-6"
+          }`}
+        >
           <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
             <p className="text-gray-500 text-xs font-medium mb-1">
               Total Sales
@@ -1650,6 +1700,21 @@ export default function SalesDashboardClient({
               {Math.abs(comparisonMetrics.totalSalesChange).toFixed(1)}%
             </p>
           </div>
+
+          {!isSingleDayPeriod && (
+            <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
+              <p className="text-gray-500 text-xs font-medium mb-1">
+                Avg. Daily Sales
+              </p>
+              <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
+                {formatCurrency(averageDailySales)}
+              </p>
+              <p className="text-xs text-gray-500">
+                over {totalDaysWithData}{" "}
+                {totalDaysWithData === 1 ? "day" : "days"}
+              </p>
+            </div>
+          )}
 
           <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
             <p className="text-gray-500 text-xs font-medium mb-1">
@@ -1688,6 +1753,24 @@ export default function SalesDashboardClient({
               {Math.abs(comparisonMetrics.totalTransactionsChange).toFixed(1)}%
             </p>
           </div>
+
+          {!isSingleDayPeriod && (
+            <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
+              <p className="text-gray-500 text-xs font-medium mb-1">
+                Days with Sales
+              </p>
+              <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
+                {totalDaysWithData}
+              </p>
+              <p className="text-xs text-gray-500">
+                {timePeriod === "week"
+                  ? "This week"
+                  : timePeriod === "month"
+                    ? "This month"
+                    : "Custom range"}
+              </p>
+            </div>
+          )}
 
           <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
             <p className="text-gray-500 text-xs font-medium mb-1">
