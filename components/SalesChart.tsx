@@ -59,6 +59,7 @@ export type CumulativePoint = {
   label: string;
   actual: number;
   average: number;
+  previous?: number;
 };
 
 export type StockHistoryPoint = {
@@ -462,6 +463,16 @@ export function CumulativeSalesChart({ data }: { data: CumulativePoint[] }) {
           strokeWidth={2}
           strokeDasharray="5 5"
           fill="url(#avgCumulativeFill)"
+          dot={false}
+          isAnimationActive={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="previous"
+          name="Previous Period (RM)"
+          stroke="#3b82f6"
+          strokeWidth={2}
+          strokeDasharray="3 3"
           dot={false}
           isAnimationActive={false}
         />

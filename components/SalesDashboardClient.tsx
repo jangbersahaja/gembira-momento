@@ -1208,11 +1208,11 @@ export default function SalesDashboardClient({
     return false;
   }, [timePeriod, customSingleDay, customStartDate, customEndDate]);
 
-  // Cumulative sales trend: actual running total vs an average baseline.
-  // - Single day view: cumulative sales by hour vs the average cumulative
-  //   sales at each hour, computed from the last ~90 days.
-  // - Multi-day range view: cumulative sales by day vs the "expected" pace
-  //   line built from the average daily sales over the last ~90 days.
+  // Cumulative sales trend: actual running total vs previous period and an average baseline.
+  // - Single day view: cumulative sales by hour vs the previous day's cumulative sales and the
+  //   average cumulative sales at each hour, computed from the last ~90 days.
+  // - Multi-day range view: cumulative sales by day vs the previous period's cumulative sales
+  //   and the "expected pace" line built from the average daily sales over the last ~90 days.
   const cumulativeChartData = useMemo(() => {
     const malaysiaOffset = 8 * 60;
     const utcOffset = new Date().getTimezoneOffset();
@@ -1262,6 +1262,38 @@ export default function SalesDashboardClient({
         );
       });
 
+      // Determine the previous day date
+      const utcNow = new Date();
+      const today = new Date(utcNow.getTime() + offsetDifference * 60 * 1000);
+      today.setHours(0, 0, 0, 0);
+
+      let previousDayDate: Date | null = null;
+      if (timePeriod === "today") {
+        previousDayDate = new Date(today);
+        previousDayDate.setDate(today.getDate() - 1);
+      } else if (timePeriod === "yesterday") {
+        previousDayDate = new Date(today);
+        previousDayDate.setDate(today.getDate() - 2);
+      } else if (timePeriod === "custom" && customStartDate) {
+        const [sy, sm, sd] = customStartDate.split("-").map(Number);
+        previousDayDate = new Date(sy, sm - 1, sd);
+        previousDayDate.setDate(previousDayDate.getDate() - 1);
+      }
+
+      // Hourly totals for the previous day from historical data
+      const prevDayHourTotals = new Map<number, number>();
+      if (previousDayDate) {
+        const prevDateKey = `${previousDayDate.getFullYear()}-${String(previousDayDate.getMonth() + 1).padStart(2, "0")}-${String(previousDayDate.getDate()).padStart(2, "0")}`;
+        historicalTransactions.forEach((t) => {
+          const info = getDateKeyAndHour(t);
+          if (!info || info.key !== prevDateKey) return;
+          prevDayHourTotals.set(
+            info.hour,
+            (prevDayHourTotals.get(info.hour) || 0) + getAmount(t),
+          );
+        });
+      }
+
       // Historical per-day hourly cumulative totals, then averaged per hour
       const dayHourTotals = new Map<string, Map<number, number>>();
       historicalTransactions.forEach((t) => {
@@ -1288,15 +1320,18 @@ export default function SalesDashboardClient({
       });
 
       let runningActual = 0;
+      let runningPrevious = 0;
       const data = [];
       for (let h = START_HOUR; h <= END_HOUR; h++) {
         runningActual += hourTotals.get(h) || 0;
+        runningPrevious += prevDayHourTotals.get(h) || 0;
         data.push({
           label: `${h.toString().padStart(2, "0")}:00`,
           actual: Math.round(runningActual * 100) / 100,
           average:
             Math.round(((avgHourCumulativeSum.get(h) || 0) / numDays) * 100) /
             100,
+          previous: Math.round(runningPrevious * 100) / 100,
         });
       }
 
@@ -1311,6 +1346,112 @@ export default function SalesDashboardClient({
       dayTotals.set(info.key, (dayTotals.get(info.key) || 0) + getAmount(t));
     });
     const sortedDays = Array.from(dayTotals.keys()).sort();
+
+    // Get transactions for the previous period (same length as current)
+    const filterByDateRange = (
+      startDate: Date,
+      endDate: Date,
+    ): TransactionData[] => {
+      return transactions.filter((t) => {
+        try {
+          const txDate = new Date(isApiTransaction(t) ? t.timestamp : t.Time);
+          const txMalaysiaTime = new Date(
+            txDate.getTime() + offsetDifference * 60 * 1000,
+          );
+          const txDateOnly = new Date(
+            txMalaysiaTime.getFullYear(),
+            txMalaysiaTime.getMonth(),
+            txMalaysiaTime.getDate(),
+          );
+          const startOnly = new Date(
+            startDate.getFullYear(),
+            startDate.getMonth(),
+            startDate.getDate(),
+          );
+          const endOnly = new Date(
+            endDate.getFullYear(),
+            endDate.getMonth(),
+            endDate.getDate(),
+          );
+
+          if (
+            isApiTransaction(t) &&
+            (t.status === "cancelled" || t.total <= 0)
+          ) {
+            return false;
+          }
+          if (isCsvTransaction(t) && t.Is_Cancelled === "True") {
+            return false;
+          }
+
+          return txDateOnly >= startOnly && txDateOnly <= endOnly;
+        } catch {
+          return false;
+        }
+      });
+    };
+
+    let previousPeriodTxs: TransactionData[] = [];
+    const utcNow = new Date();
+    const today = new Date(utcNow.getTime() + offsetDifference * 60 * 1000);
+    today.setHours(0, 0, 0, 0);
+
+    if (timePeriod === "week") {
+      // Previous period: last week (Monday-Sunday), same length as current
+      const dayOfWeek = today.getDay();
+      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      const currentWeekStart = new Date(today);
+      currentWeekStart.setDate(today.getDate() - daysToMonday);
+
+      const lastWeekEnd = new Date(currentWeekStart);
+      lastWeekEnd.setDate(currentWeekStart.getDate() - 1);
+      const lastWeekStart = new Date(lastWeekEnd);
+      lastWeekStart.setDate(lastWeekEnd.getDate() - 6);
+
+      previousPeriodTxs = filterByDateRange(lastWeekStart, lastWeekEnd);
+    } else if (timePeriod === "month") {
+      // Previous period: last month
+      const lastMonthStart = new Date(today);
+      lastMonthStart.setDate(1);
+      lastMonthStart.setMonth(today.getMonth() - 1);
+      const lastMonthEnd = new Date(today);
+      lastMonthEnd.setDate(0); // Last day of previous month
+
+      previousPeriodTxs = filterByDateRange(lastMonthStart, lastMonthEnd);
+    } else if (timePeriod === "custom" && customStartDate && customEndDate) {
+      // Previous period: same duration as custom range, but shifted back
+      const [sy, sm, sd] = customStartDate.split("-").map(Number);
+      const [ey, em, ed] = customEndDate.split("-").map(Number);
+      const customStart = new Date(sy, sm - 1, sd);
+      const customEnd = new Date(ey, em - 1, ed);
+      const duration =
+        Math.floor(
+          (customEnd.getTime() - customStart.getTime()) / (1000 * 60 * 60 * 24),
+        ) + 1;
+
+      const prevEnd = new Date(customStart);
+      prevEnd.setDate(customStart.getDate() - 1);
+      const prevStart = new Date(prevEnd);
+      prevStart.setDate(prevEnd.getDate() - duration + 1);
+
+      previousPeriodTxs = filterByDateRange(prevStart, prevEnd);
+    }
+
+    // Previous day totals
+    const prevDayTotals = new Map<string, number>();
+    const prevSortedDays: string[] = [];
+    previousPeriodTxs.forEach((t) => {
+      const info = getDateKeyAndHour(t);
+      if (!info) return;
+      if (!prevDayTotals.has(info.key)) {
+        prevSortedDays.push(info.key);
+      }
+      prevDayTotals.set(
+        info.key,
+        (prevDayTotals.get(info.key) || 0) + getAmount(t),
+      );
+    });
+    prevSortedDays.sort();
 
     // Average daily sales from the historical baseline, used to build an
     // "expected pace" straight line for comparison
@@ -1331,9 +1472,15 @@ export default function SalesDashboardClient({
 
     let runningActual = 0;
     let runningAvg = 0;
-    const data = sortedDays.map((key) => {
+    let runningPrevious = 0;
+    const data = sortedDays.map((key, idx) => {
       runningActual += dayTotals.get(key) || 0;
       runningAvg += avgDailySales;
+      // For previous period, use the corresponding day from sorted previous days
+      if (idx < prevSortedDays.length) {
+        runningPrevious += prevDayTotals.get(prevSortedDays[idx]) || 0;
+      }
+
       const [y, m, d] = key.split("-").map(Number);
       const label = new Date(y, m - 1, d).toLocaleDateString("en-MY", {
         month: "short",
@@ -1343,11 +1490,20 @@ export default function SalesDashboardClient({
         label,
         actual: Math.round(runningActual * 100) / 100,
         average: Math.round(runningAvg * 100) / 100,
+        previous: Math.round(runningPrevious * 100) / 100,
       };
     });
 
     return { mode: "daily" as const, data };
-  }, [isSingleDayView, filteredTransactions, historicalTransactions]);
+  }, [
+    isSingleDayView,
+    filteredTransactions,
+    historicalTransactions,
+    timePeriod,
+    customStartDate,
+    customEndDate,
+    transactions,
+  ]);
 
   // Get staff on duty
   const staffOnDuty = useMemo<StaffMember[]>(() => {
@@ -1830,8 +1986,8 @@ export default function SalesDashboardClient({
           </h3>
           <p className="text-xs text-gray-500 mb-3">
             {cumulativeChartData.mode === "hourly"
-              ? "Running total for the selected day vs the average cumulative sales at each hour (based on the last ~90 days)"
-              : "Running total across the selected period vs the expected pace based on average daily sales (last ~90 days). Note: for longer ranges this compares day-by-day totals, not hour-by-hour."}
+              ? "Running total for the selected day (orange) vs the previous day (blue) and average cumulative sales at each hour from the last ~90 days (gray dashed)"
+              : "Running total across the selected period (orange) vs the previous period (blue) and expected pace based on average daily sales (gray dashed). Note: for longer ranges this compares day-by-day totals, not hour-by-hour."}
           </p>
           {cumulativeChartData.data.length > 0 ? (
             <CumulativeSalesChart data={cumulativeChartData.data} />
