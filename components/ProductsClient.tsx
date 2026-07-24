@@ -18,8 +18,8 @@ import {
   useTransactions,
 } from "@/lib/useStorehubApi";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo, useState } from "react";
 
 interface ProductData {
   sku: string;
@@ -387,24 +387,67 @@ function daysAgoFrom(dateStr: string) {
 }
 
 export default function ProductsClient() {
-  // Support deep-linking in from the product detail page, e.g.
-  // /products?category=Bag or /products?supplier=Inaranur
+  const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Get initial values from URL parameters
   const initialCategory = searchParams.get("category") || "";
   const initialSupplier = searchParams.get("supplier") || "";
+  const initialSearch = searchParams.get("search") || "";
+  const initialViewMode = (searchParams.get("view") ||
+    (initialSupplier ? "supplier" : "all")) as ViewMode;
+  const initialLowStockOnly = searchParams.get("lowStock") === "true";
+  const initialSortKey = (searchParams.get("sortKey") || "name") as SortKey;
+  const initialSortDir = (searchParams.get("sortDir") || "asc") as SortDir;
 
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     () => new Set(initialSupplier ? [initialSupplier] : []),
   );
-  const [viewMode, setViewMode] = useState<ViewMode>(
-    initialSupplier ? "supplier" : "all",
-  );
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [categoryFilter, setCategoryFilter] = useState<string>(initialCategory);
-  const [lowStockOnly, setLowStockOnly] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [lowStockOnly, setLowStockOnly] = useState(initialLowStockOnly);
+  const [sortKey, setSortKey] = useState<SortKey>(initialSortKey);
+  const [sortDir, setSortDir] = useState<SortDir>(initialSortDir);
   const [page, setPage] = useState(0);
+
+  // Update URL whenever filter states change
+  const updateUrl = useCallback(
+    (
+      search: string,
+      view: ViewMode,
+      category: string,
+      lowStock: boolean,
+      sort: SortKey,
+      dir: SortDir,
+    ) => {
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (view && view !== "all") params.set("view", view);
+      if (category) params.set("category", category);
+      if (lowStock) params.set("lowStock", "true");
+      if (sort !== "name") params.set("sortKey", sort);
+      if (dir !== "asc") params.set("sortDir", dir);
+
+      const queryString = params.toString();
+      const newUrl = `/products${queryString ? "?" + queryString : ""}`;
+      router.push(newUrl);
+    },
+    [router],
+  );
+
+  // Reset all filters, sort, and groups to defaults
+  const handleReset = useCallback(() => {
+    setSearchTerm("");
+    setViewMode("all");
+    setCategoryFilter("");
+    setLowStockOnly(false);
+    setSortKey("name");
+    setSortDir("asc");
+    setPage(0);
+    setExpandedGroups(new Set());
+    router.push("/products");
+  }, [router]);
 
   // Get storeId from environment variable (set in .env.local)
   const storeId = process.env.NEXT_PUBLIC_STOREHUB_STORE_ID || "";
@@ -659,7 +702,9 @@ export default function ProductsClient() {
       list = list.filter((p) => p.category === categoryFilter);
     }
     if (lowStockOnly) {
-      list = list.filter((p) => p.lowStock);
+      list = list.filter(
+        (p) => p.lowStock || (p.restockUrgency && p.restockUrgency !== "none"),
+      );
     }
     return list;
   }, [productsResolved, searchTerm, categoryFilter, lowStockOnly]);
@@ -840,7 +885,17 @@ export default function ProductsClient() {
             {/* View Toggle */}
             <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
               <button
-                onClick={() => setViewMode("all")}
+                onClick={() => {
+                  setViewMode("all");
+                  updateUrl(
+                    searchTerm,
+                    "all",
+                    categoryFilter,
+                    lowStockOnly,
+                    sortKey,
+                    sortDir,
+                  );
+                }}
                 className={`px-2.5 py-1.5 rounded-md font-medium transition-all text-xs md:text-sm ${
                   viewMode === "all"
                     ? "bg-purple-500 text-white shadow-sm"
@@ -850,7 +905,17 @@ export default function ProductsClient() {
                 All
               </button>
               <button
-                onClick={() => setViewMode("category")}
+                onClick={() => {
+                  setViewMode("category");
+                  updateUrl(
+                    searchTerm,
+                    "category",
+                    categoryFilter,
+                    lowStockOnly,
+                    sortKey,
+                    sortDir,
+                  );
+                }}
                 className={`px-2.5 py-1.5 rounded-md font-medium transition-all text-xs md:text-sm ${
                   viewMode === "category"
                     ? "bg-blue-500 text-white shadow-sm"
@@ -860,7 +925,17 @@ export default function ProductsClient() {
                 Category
               </button>
               <button
-                onClick={() => setViewMode("supplier")}
+                onClick={() => {
+                  setViewMode("supplier");
+                  updateUrl(
+                    searchTerm,
+                    "supplier",
+                    categoryFilter,
+                    lowStockOnly,
+                    sortKey,
+                    sortDir,
+                  );
+                }}
                 className={`px-2.5 py-1.5 rounded-md font-medium transition-all text-xs md:text-sm ${
                   viewMode === "supplier"
                     ? "bg-green-500 text-white shadow-sm"
@@ -870,7 +945,17 @@ export default function ProductsClient() {
                 Supplier
               </button>
               <button
-                onClick={() => setViewMode("variant")}
+                onClick={() => {
+                  setViewMode("variant");
+                  updateUrl(
+                    searchTerm,
+                    "variant",
+                    categoryFilter,
+                    lowStockOnly,
+                    sortKey,
+                    sortDir,
+                  );
+                }}
                 className={`px-2.5 py-1.5 rounded-md font-medium transition-all text-xs md:text-sm ${
                   viewMode === "variant"
                     ? "bg-amber-500 text-white shadow-sm"
@@ -892,8 +977,17 @@ export default function ProductsClient() {
             placeholder="Search by product name or SKU..."
             value={searchTerm}
             onChange={(e) => {
-              setSearchTerm(e.target.value);
+              const newSearch = e.target.value;
+              setSearchTerm(newSearch);
               setPage(0);
+              updateUrl(
+                newSearch,
+                viewMode,
+                categoryFilter,
+                lowStockOnly,
+                sortKey,
+                sortDir,
+              );
             }}
             className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
@@ -906,8 +1000,17 @@ export default function ProductsClient() {
           <select
             value={categoryFilter}
             onChange={(e) => {
-              setCategoryFilter(e.target.value);
+              const newCategory = e.target.value;
+              setCategoryFilter(newCategory);
               setPage(0);
+              updateUrl(
+                searchTerm,
+                viewMode,
+                newCategory,
+                lowStockOnly,
+                sortKey,
+                sortDir,
+              );
             }}
             className="px-2.5 py-1.5 text-xs md:text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
@@ -921,7 +1024,18 @@ export default function ProductsClient() {
 
           <select
             value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            onChange={(e) => {
+              const newSort = e.target.value as SortKey;
+              setSortKey(newSort);
+              updateUrl(
+                searchTerm,
+                viewMode,
+                categoryFilter,
+                lowStockOnly,
+                newSort,
+                sortDir,
+              );
+            }}
             className="px-2.5 py-1.5 text-xs md:text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="name">Sort: Name</option>
@@ -933,7 +1047,18 @@ export default function ProductsClient() {
           </select>
 
           <button
-            onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+            onClick={() => {
+              const newDir = sortDir === "asc" ? "desc" : "asc";
+              setSortDir(newDir);
+              updateUrl(
+                searchTerm,
+                viewMode,
+                categoryFilter,
+                lowStockOnly,
+                sortKey,
+                newDir,
+              );
+            }}
             className="px-2.5 py-1.5 text-xs md:text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
             title="Toggle sort direction"
           >
@@ -945,12 +1070,29 @@ export default function ProductsClient() {
               type="checkbox"
               checked={lowStockOnly}
               onChange={(e) => {
-                setLowStockOnly(e.target.checked);
+                const newLowStock = e.target.checked;
+                setLowStockOnly(newLowStock);
                 setPage(0);
+                updateUrl(
+                  searchTerm,
+                  viewMode,
+                  categoryFilter,
+                  newLowStock,
+                  sortKey,
+                  sortDir,
+                );
               }}
             />
             Low stock only
           </label>
+
+          <button
+            onClick={handleReset}
+            className="px-2.5 py-1.5 text-xs md:text-sm border border-gray-300 rounded-lg hover:bg-red-50 hover:border-red-300 hover:text-red-700 transition-colors"
+            title="Reset all filters, sort, and groups"
+          >
+            ↻ Reset
+          </button>
         </div>
       </div>
 

@@ -124,6 +124,7 @@ export default function SalesDashboardClient({
   role?: Role | null;
 } = {}) {
   const canViewPaymentBreakdown = role !== "STAFF" && role !== "SUPERVISOR";
+  const canViewStaffOnDuty = role !== "STAFF" && role !== "SUPERVISOR";
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("today");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
@@ -1772,17 +1773,20 @@ export default function SalesDashboardClient({
             </div>
           )}
 
-          <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
-            <p className="text-gray-500 text-xs font-medium mb-1">
-              Staff On Duty
-            </p>
-            <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
-              {staffOnDuty.length}
-            </p>
-            <p className="text-xs text-gray-500">
-              {staffOnDuty.filter((s) => s.status === "on-duty").length} active
-            </p>
-          </div>
+          {canViewStaffOnDuty && (
+            <div className="bg-white border border-gray-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow">
+              <p className="text-gray-500 text-xs font-medium mb-1">
+                Staff On Duty
+              </p>
+              <p className="text-xl md:text-2xl font-bold text-gray-900 mb-1">
+                {staffOnDuty.length}
+              </p>
+              <p className="text-xs text-gray-500">
+                {staffOnDuty.filter((s) => s.status === "on-duty").length}{" "}
+                active
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Payment Breakdown - Compact (hidden for Staff/Supervisor) */}
@@ -1893,55 +1897,57 @@ export default function SalesDashboardClient({
         </div>
 
         {/* Staff On Duty */}
-        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">
-            Staff On Duty
-          </h3>
-          {staffOnDuty.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 max-h-80 overflow-y-auto pr-2">
-              {staffOnDuty.map((staff) => {
-                const isActive = staff.status === "on-duty";
-                return (
-                  <div
-                    key={staff.name}
-                    className={`flex items-center justify-between p-2 rounded-lg transition ${
-                      isActive
-                        ? "bg-green-50 border border-green-200"
-                        : "bg-gray-50 border border-gray-200"
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <div
-                          className={`shrink-0 w-4 h-4 rounded-full ${
-                            isActive ? "bg-green-500" : "bg-gray-300"
-                          }`}
-                        />
-                        <p className="font-medium text-gray-900 text-xs truncate">
-                          {staff.name}
-                        </p>
-                        <span className="text-xs text-gray-500">
-                          {staff.totalHours || 0}h
-                        </span>
-                      </div>
-                    </div>
-                    <span
-                      className={`text-xs font-semibold px-2 py-0.5 rounded-md shrink-0 ml-1 ${
+        {canViewStaffOnDuty && (
+          <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">
+              Staff On Duty
+            </h3>
+            {staffOnDuty.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 max-h-80 overflow-y-auto pr-2">
+                {staffOnDuty.map((staff) => {
+                  const isActive = staff.status === "on-duty";
+                  return (
+                    <div
+                      key={staff.name}
+                      className={`flex items-center justify-between p-2 rounded-lg transition ${
                         isActive
-                          ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-600"
+                          ? "bg-green-50 border border-green-200"
+                          : "bg-gray-50 border border-gray-200"
                       }`}
                     >
-                      {isActive ? "Active" : "Off"}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-gray-400 text-center py-4 text-xs">No staff</p>
-          )}
-        </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <div
+                            className={`shrink-0 w-4 h-4 rounded-full ${
+                              isActive ? "bg-green-500" : "bg-gray-300"
+                            }`}
+                          />
+                          <p className="font-medium text-gray-900 text-xs truncate">
+                            {staff.name}
+                          </p>
+                          <span className="text-xs text-gray-500">
+                            {staff.totalHours || 0}h
+                          </span>
+                        </div>
+                      </div>
+                      <span
+                        className={`text-xs font-semibold px-2 py-0.5 rounded-md shrink-0 ml-1 ${
+                          isActive
+                            ? "bg-green-100 text-green-800"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {isActive ? "Active" : "Off"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-gray-400 text-center py-4 text-xs">No staff</p>
+            )}
+          </div>
+        )}
 
         {/* Recent Transactions */}
         <div className="bg-white border border-gray-200 rounded-lg p-4">
