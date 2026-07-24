@@ -238,7 +238,9 @@ interface CashMovementRow {
   openingAmount: number;
   cashSales: number;
   payIn: number;
+  payInDetails: string;
   payOut: number;
+  payOutDetails: string;
   expectedDrawer: number;
   actualDrawer: number;
   overShort: number;
@@ -273,6 +275,7 @@ interface ReportData {
   utilitiesCost: number;
   marketingCost: number;
   claimCost: number;
+  payInCost: number;
   totalOperatingCost: number;
   totalExpenses: number;
   netProfit: number;
@@ -342,6 +345,7 @@ function getMonthData(
     utilitiesCost: 0,
     marketingCost: 0,
     claimCost: 0,
+    payInCost: 0,
     totalOperatingCost: 0,
     totalExpenses: 0,
     netProfit: 0,
@@ -806,7 +810,9 @@ function getMonthData(
       parseFloat(String(shift["Opening Amount"] || "0")) || 0;
     const cashSales = parseFloat(String(shift["Cash Sales"] || "0")) || 0;
     const payIn = parseFloat(String(shift["Pay In"] || "0")) || 0;
+    const payInDetails = String(shift["Pay In Details"] || "");
     const payOut = parseFloat(String(shift["Pay Out"] || "0")) || 0;
+    const payOutDetails = String(shift["Pay Out Details"] || "");
     const expectedDrawer =
       parseFloat(String(shift["Expected Drawer"] || "0")) || 0;
     const actualDrawer = parseFloat(String(shift["Actual Drawer"] || "0")) || 0;
@@ -825,7 +831,9 @@ function getMonthData(
       openingAmount,
       cashSales,
       payIn,
+      payInDetails,
       payOut,
+      payOutDetails,
       expectedDrawer,
       actualDrawer,
       overShort,
@@ -1165,6 +1173,7 @@ function getMonthData(
   reportData.marketingCost = 0;
 
   // Operating costs = everything besides COGS
+  reportData.payInCost = -reportData.cashMovementTotals.payIn;
   reportData.totalOperatingCost =
     reportData.laborCost +
     reportData.totalCommission +
@@ -1172,7 +1181,8 @@ function getMonthData(
     reportData.gtoCost +
     reportData.utilitiesCost +
     reportData.marketingCost +
-    reportData.claimCost;
+    reportData.claimCost +
+    reportData.payInCost;
 
   // Calculate total expenses and net profit
   reportData.totalExpenses =
@@ -1857,6 +1867,10 @@ export default function MonthlyReportClient() {
                     value: reportData.marketingCost,
                   },
                   { name: "Claims/Payouts", value: reportData.claimCost },
+                  {
+                    name: "Pay-in (Change Credit)",
+                    value: reportData.payInCost,
+                  },
                 ].map(({ name, value }) => (
                   <div
                     key={name}
@@ -1865,8 +1879,11 @@ export default function MonthlyReportClient() {
                     <span className="text-xs md:text-sm font-medium text-gray-700">
                       {name}
                     </span>
-                    <span className="text-xs md:text-sm font-semibold text-gray-900">
-                      RM {formatCurrency(value)}
+                    <span
+                      className={`text-xs md:text-sm font-semibold ${value < 0 ? "text-green-600" : "text-gray-900"}`}
+                    >
+                      {value < 0 ? "−RM " : "RM "}
+                      {formatCurrency(Math.abs(value))}
                     </span>
                   </div>
                 ))}
@@ -1882,11 +1899,11 @@ export default function MonthlyReportClient() {
             </div>
 
             {/* Labor Cost Breakdown */}
-            <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+            <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6 ">
               <h2 className="text-base md:text-lg font-bold text-gray-900 mb-4">
                 Labor cost breakdown
               </h2>
-              <div className="space-y-2 max-h-80">
+              <div className="space-y-2">
                 {Object.entries(reportData.laborBreakdown).map(
                   ([name, data]) => (
                     <div
@@ -2476,6 +2493,93 @@ export default function MonthlyReportClient() {
                           reportData.cashMovementTotals.bankTransfer,
                         )}
                       </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+
+          {/* Payouts Details */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 md:p-6">
+            <h2 className="text-base md:text-lg font-bold text-gray-900 mb-1">
+              Payouts &amp; Pay-ins details
+            </h2>
+            <p className="text-xs md:text-sm text-gray-600 mb-4">
+              Daily cash additions and withdrawals from the drawer
+            </p>
+            <div className="overflow-x-auto max-h-96 overflow-y-auto">
+              <table className="w-full text-xs md:text-sm">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b border-gray-200 text-left text-gray-500">
+                    <th className="py-2 pr-2 font-medium">Date</th>
+                    <th className="py-2 px-2 font-medium text-right">Pay in</th>
+                    <th className="py-2 px-2 font-medium">Pay in details</th>
+                    <th className="py-2 px-2 font-medium text-right">
+                      Pay out
+                    </th>
+                    <th className="py-2 pl-2 font-medium">Pay out details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportData.cashMovementRows.map((row) => (
+                    <tr key={row.date} className="border-b border-gray-100">
+                      <td className="py-2 pr-2 font-medium text-gray-900">
+                        {new Date(row.date + "T00:00:00").toLocaleDateString(
+                          "en-MY",
+                          { day: "numeric", month: "short", weekday: "short" },
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right font-semibold text-green-600">
+                        {row.payIn > 0 ? (
+                          `+RM ${formatCurrency(row.payIn)}`
+                        ) : (
+                          <span className="text-gray-400">RM 0.00</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-gray-700">
+                        {row.payInDetails || (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-right font-semibold text-red-600">
+                        {row.payOut > 0 ? (
+                          `-RM ${formatCurrency(row.payOut)}`
+                        ) : (
+                          <span className="text-gray-400">RM 0.00</span>
+                        )}
+                      </td>
+                      <td className="py-2 pl-2 text-gray-700">
+                        {row.payOutDetails || (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {reportData.cashMovementRows.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="py-6 text-center text-gray-500"
+                      >
+                        No payout data for this month
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                {reportData.cashMovementRows.length > 0 && (
+                  <tfoot className="sticky bottom-0 bg-gray-50">
+                    <tr className="border-t-2 border-gray-300 font-semibold">
+                      <td className="py-2 pr-2 text-gray-900">Total</td>
+                      <td className="py-2 px-2 text-right text-green-700">
+                        RM {formatCurrency(reportData.cashMovementTotals.payIn)}
+                      </td>
+                      <td className="py-2 px-2"></td>
+                      <td className="py-2 px-2 text-right text-red-700">
+                        RM{" "}
+                        {formatCurrency(reportData.cashMovementTotals.payOut)}
+                      </td>
+                      <td className="py-2 pl-2"></td>
                     </tr>
                   </tfoot>
                 )}
